@@ -1,0 +1,246 @@
+---
+title: "API Reference"
+description: "Complete API reference for Effect TypeScript library"
+---
+
+Effect is a TypeScript library for building robust, type-safe applications with powerful effect management, error handling, and resource management capabilities.
+
+## Core Modules
+
+The core Effect library provides the fundamental building blocks for effectful programming.
+
+### Effect
+
+The `Effect` type represents a computation that may succeed with a value of type `A`, fail with an error of type `E`, or require services of type `R`.
+
+```ts
+type Effect<A, E = never, R = never>
+```
+
+**Key Operations:**
+- `Effect.succeed` — Create a successful effect
+- `Effect.fail` — Create a failed effect
+- `Effect.gen` — Generator-based effect composition
+- `Effect.flatMap` — Sequential composition
+- `Effect.map` — Transform success values
+- `Effect.catch` — Error recovery
+- `Effect.provide` — Provide service implementations
+
+[Learn more about Effect basics →](/core-concepts/effect-basics)
+
+### Schema
+
+Define data shapes, validate unknown input, and transform values between formats.
+
+**Key Features:**
+- Elementary schemas (primitives, literals, strings, numbers)
+- Composite schemas (structs, tuples, arrays, records, unions)
+- Validation rules with `.check()`
+- Transformations with `decodeTo` and `encodeTo`
+- Opaque types and classes
+- JSON Schema generation
+
+[Learn more about Schema →](/core-modules/schema)
+
+### Stream
+
+Effectful streams for processing sequences of values with backpressure support.
+
+**Key Operations:**
+- `Stream.make` — Create a stream from values
+- `Stream.fromIterable` — Create from an iterable
+- `Stream.map` — Transform elements
+- `Stream.filter` — Filter elements
+- `Stream.flatMap` — Flatten nested streams
+- `Stream.runCollect` — Collect all elements
+- `Stream.run` — Run stream with a sink
+
+[Learn more about Stream →](/core-modules/stream)
+
+### Layer
+
+Manage service dependencies and their lifecycles.
+
+**Key Operations:**
+- `Layer.succeed` — Create a layer from a value
+- `Layer.effect` — Create a layer from an effect
+- `Layer.scoped` — Create a scoped layer with cleanup
+- `Layer.provide` — Wire layer dependencies
+- `Layer.merge` — Combine layers
+
+[Learn more about Layer →](/core-modules/layer)
+
+## Data Structures
+
+Effect provides immutable, persistent data structures optimized for functional programming.
+
+### Collection Types
+
+- **`Chunk`** — Immutable array-like collection with O(1) append
+- **`HashMap`** — Persistent hash map with structural equality
+- **`HashSet`** — Persistent hash set with structural equality
+- **`List`** — Linked list with efficient head operations
+- **`RedBlackTree`** — Ordered map with O(log n) operations
+- **`SortedSet`** — Ordered set with O(log n) operations
+
+### Concurrent Primitives
+
+- **`Queue`** — Concurrent queue with backpressure
+- **`PubSub`** — Publish-subscribe messaging
+- **`Ref`** — Concurrent mutable reference
+- **`Deferred`** — One-time settable promise
+- **`Semaphore`** — Resource limiting and coordination
+- **`Mutex`** — Mutual exclusion lock
+
+[Learn more about data structures →](/core-modules/data-structures)
+
+## Configuration and Resources
+
+### Config
+
+Type-safe configuration management with environment variable support.
+
+**Key Operations:**
+- `Config.string` — String configuration
+- `Config.number` — Number configuration
+- `Config.boolean` — Boolean configuration
+- `Config.array` — Array configuration
+- `Config.nested` — Nested configuration
+- `Config.withDefault` — Default values
+
+[Learn more about Config →](/core-modules/config)
+
+### Cache
+
+Memoization and caching with TTL support.
+
+**Key Features:**
+- Time-to-live (TTL) expiration
+- Size-based eviction
+- Effectful lookups
+- Concurrent access coordination
+
+[Learn more about Cache →](/core-modules/cache)
+
+## Scheduling and Timing
+
+### Schedule
+
+Define retry and repeat policies with backoff strategies.
+
+**Key Schedules:**
+- `Schedule.forever` — Repeat indefinitely
+- `Schedule.recurs` — Repeat n times
+- `Schedule.exponential` — Exponential backoff
+- `Schedule.spaced` — Fixed delay between runs
+- `Schedule.jittered` — Add randomness to delays
+
+[Learn more about Schedule →](/core-modules/schedule)
+
+## Unstable Modules
+
+Unstable modules are available under `effect/unstable/*` import paths. These modules may receive breaking changes in minor releases.
+
+<Warning>
+Unstable modules are subject to breaking changes in minor versions. Use with caution in production.
+</Warning>
+
+### HTTP & API
+
+- **`http`** — HTTP client and server
+- **`httpapi`** — HTTP API definitions and routing
+
+[Learn more about HTTP modules →](/unstable/http-client)
+
+### CLI & Processes
+
+- **`cli`** — Command-line interface tools
+- **`process`** — Process management
+
+[Learn more about CLI →](/unstable/cli)
+
+### AI & Language Models
+
+- **`ai`** — Language model integrations (OpenAI, Anthropic, etc.)
+
+[Learn more about AI →](/unstable/ai)
+
+### Distributed Systems
+
+- **`cluster`** — Distributed systems primitives
+- **`rpc`** — Remote procedure calls
+- **`workflow`** — Workflow orchestration
+
+[Learn more about distributed systems →](/unstable/cluster)
+
+### Other Modules
+
+- **`observability`** — Tracing and metrics
+- **`persistence`** — Data persistence layers
+- **`socket`** — WebSocket support
+- **`sql`** — SQL query builders
+- **`workers`** — Worker thread management
+
+## Platform Packages
+
+Platform-specific implementations for different JavaScript runtimes.
+
+### Runtime Support
+
+- **`@effect/platform-node`** — Node.js integration
+- **`@effect/platform-browser`** — Browser integration
+- **`@effect/platform-bun`** — Bun runtime integration
+
+[Learn more about platform packages →](/platform/overview)
+
+## SQL Packages
+
+Database drivers and query builders.
+
+### Supported Databases
+
+- **`@effect/sql-pg`** — PostgreSQL
+- **`@effect/sql-mysql2`** — MySQL
+- **`@effect/sql-mssql`** — Microsoft SQL Server
+- **`@effect/sql-sqlite-*`** — SQLite (multiple implementations)
+- **`@effect/sql-clickhouse`** — ClickHouse
+- **`@effect/sql-libsql`** — LibSQL/Turso
+- **`@effect/sql-d1`** — Cloudflare D1
+
+[Learn more about SQL packages →](/sql/overview)
+
+## Additional Resources
+
+### TypeDoc Documentation
+
+For detailed API documentation with type signatures and examples, visit the [Effect TypeDoc documentation](https://effect-ts.github.io/effect/).
+
+### GitHub Repository
+
+Explore the source code, examples, and contribute to the project on [GitHub](https://github.com/Effect-TS/effect-smol).
+
+### Community
+
+Join the Effect community:
+- [Discord](https://discord.gg/effect-ts)
+- [Twitter](https://twitter.com/EffectTS_)
+- [GitHub Discussions](https://github.com/Effect-TS/effect-smol/discussions)
+
+## Migration Guides
+
+Migrating from Effect v3? Check out the migration guides:
+
+<CardGroup cols={2}>
+  <Card title="Services Migration" icon="tag" href="/migration/services">
+    Context.Tag → ServiceMap.Service
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/migration/error-handling">
+    catch* renamings and patterns
+  </Card>
+  <Card title="Schema v4" icon="shapes" href="/migration/schema">
+    Schema validation changes
+  </Card>
+  <Card title="Migration Overview" icon="book" href="/migration/overview">
+    Complete v3 to v4 guide
+  </Card>
+</CardGroup>

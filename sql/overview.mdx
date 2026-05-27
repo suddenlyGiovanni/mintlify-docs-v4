@@ -1,0 +1,226 @@
+---
+title: SQL Packages Overview
+description: Database integrations for Effect
+---
+
+Effect provides a comprehensive set of SQL packages built on the `effect/unstable/sql` module. These packages offer type-safe, composable database clients for various SQL databases with built-in connection pooling, migrations, and reactive queries.
+
+## Core Features
+
+All SQL packages share a common foundation:
+
+- **Type-safe queries**: Full TypeScript support with compile-time checking
+- **Connection pooling**: Automatic connection management
+- **Transactions**: Nested transaction support with savepoints
+- **Migrations**: Built-in migration system
+- **Reactive queries**: Automatic query invalidation and re-execution
+- **Error handling**: Structured error types
+- **Effect integration**: Seamless integration with Effect ecosystem
+
+## Available Databases
+
+### PostgreSQL
+
+The `@effect/sql-pg` package provides PostgreSQL support using the `pg` library:
+
+- Full PostgreSQL feature support
+- LISTEN/NOTIFY support
+- JSON/JSONB handling
+- Cursor-based streaming
+
+[Learn more about PostgreSQL →](/sql/postgres)
+
+### MySQL
+
+The `@effect/sql-mysql2` package provides MySQL support using the `mysql2` library:
+
+- MySQL 5.7+ and MariaDB support
+- Prepared statements
+- Connection pooling
+- Full transaction support
+
+[Learn more about MySQL →](/sql/mysql)
+
+### SQLite
+
+Multiple SQLite packages for different runtimes:
+
+- `@effect/sql-sqlite-node` - Node.js using better-sqlite3
+- `@effect/sql-sqlite-bun` - Bun's native SQLite
+- `@effect/sql-sqlite-wasm` - WebAssembly SQLite for browsers
+
+[Learn more about SQLite →](/sql/sqlite)
+
+### Microsoft SQL Server
+
+The `@effect/sql-mssql` package provides SQL Server support using the `tedious` library:
+
+- SQL Server 2012+ support
+- Stored procedures
+- TVP (Table-Valued Parameters)
+- Bulk operations
+
+[Learn more about SQL Server →](/sql/mssql)
+
+### ClickHouse
+
+The `@effect/sql-clickhouse` package provides ClickHouse support:
+
+- High-performance analytics queries
+- Column-oriented storage
+- Real-time data ingestion
+
+[Learn more about ClickHouse →](/sql/clickhouse)
+
+## Common Usage Patterns
+
+### Basic Query
+
+All SQL clients share a common query interface:
+
+```typescript
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const getUser = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const users = yield* sql`SELECT * FROM users WHERE id = ${id}`
+    return users[0]
+  })
+```
+
+### Transactions
+
+Transactions work consistently across all databases:
+
+```typescript
+const transferFunds = (from: number, to: number, amount: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    
+    yield* sql`UPDATE accounts SET balance = balance - ${amount} WHERE id = ${from}`
+    yield* sql`UPDATE accounts SET balance = balance + ${amount} WHERE id = ${to}`
+  }).pipe(
+    sql.withTransaction
+  )
+```
+
+### Migrations
+
+All packages include a migration system:
+
+```typescript
+import * as Migrator from "effect/unstable/sql/Migrator"
+
+const migrate = Migrator.make({
+  loader: Migrator.fromFileSystem("./migrations"),
+  schemaDirectory: "sql"
+})
+```
+
+### Reactive Queries
+
+Enable reactive queries that automatically re-execute when data changes:
+
+```typescript
+import * as Stream from "effect/Stream"
+
+const watchUser = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    
+    return sql.reactive(
+      ["users", id],
+      sql`SELECT * FROM users WHERE id = ${id}`
+    )
+  })
+
+// Returns a Stream that emits new values when the user is updated
+```
+
+## Connection Configuration
+
+Each database has its own configuration options, but they follow similar patterns:
+
+```typescript
+// PostgreSQL
+import { PgClient } from "@effect/sql-pg"
+
+const PgLive = PgClient.layer({
+  host: "localhost",
+  port: 5432,
+  database: "mydb",
+  username: "user",
+  password: Redacted.make("pass"),
+  maxConnections: 10
+})
+
+// MySQL
+import { MysqlClient } from "@effect/sql-mysql2"
+
+const MysqlLive = MysqlClient.layer({
+  host: "localhost",
+  port: 3306,
+  database: "mydb",
+  username: "user",
+  password: Redacted.make("pass")
+})
+```
+
+## Schema Generation
+
+Generate TypeScript types from your database schema:
+
+```typescript
+import * as SqlSchema from "effect/unstable/sql/SqlSchema"
+import * as Schema from "effect/Schema"
+
+// Define your schema
+class User extends SqlSchema.make({
+  id: Schema.Int,
+  name: Schema.String,
+  email: Schema.String,
+  createdAt: SqlSchema.DateTimeInsert
+}) {}
+
+// Insert with type safety
+const insertUser = (user: typeof User.jsonInsert.Type) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`INSERT INTO users ${sql.insert(user)}`
+  })
+```
+
+## Error Handling
+
+All SQL operations return structured errors:
+
+```typescript
+import { SqlError } from "effect/unstable/sql/SqlError"
+
+const safeQuery = (id: number) =>
+  getUser(id).pipe(
+    Effect.catchTag("SqlError", (error) =>
+      Effect.succeed({ error: error.message })
+    )
+  )
+```
+
+## Choosing a Database
+
+| Database | Use Case | Key Features |
+|----------|----------|-------------|
+| PostgreSQL | General purpose, complex queries | Advanced features, JSONB, full-text search |
+| MySQL | Web applications, WordPress | Wide hosting support, good performance |
+| SQLite | Local/embedded, mobile apps | Serverless, single file, zero config |
+| SQL Server | Enterprise, .NET integration | Enterprise features, stored procedures |
+| ClickHouse | Analytics, time series | Column-oriented, high performance |
+
+## Next Steps
+
+- [PostgreSQL →](/sql/postgres)
+- [MySQL →](/sql/mysql)
+- [SQLite →](/sql/sqlite)
+- [SQL Server →](/sql/mssql)
+- [ClickHouse →](/sql/clickhouse)

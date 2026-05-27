@@ -1,0 +1,152 @@
+---
+title: "Error Handling Migration"
+description: "Changes to catch combinators and error handling patterns in Effect v4"
+---
+
+The `catch` combinators on `Effect` have been renamed in v4. The general pattern: `catchAll*` is shortened to `catch*`, and the `catchSome*` family is replaced by `catchFilter` / `catchCauseFilter`.
+
+## Renamings
+
+| v3 | v4 |
+| --- | --- |
+| `Effect.catchAll` | `Effect.catch` |
+| `Effect.catchAllCause` | `Effect.catchCause` |
+| `Effect.catchAllDefect` | `Effect.catchDefect` |
+| `Effect.catchTag` | `Effect.catchTag` (unchanged) |
+| `Effect.catchTags` | `Effect.catchTags` (unchanged) |
+| `Effect.catchIf` | `Effect.catchIf` (unchanged) |
+| `Effect.catchSome` | `Effect.catchFilter` |
+| `Effect.catchSomeCause` | `Effect.catchCauseFilter` |
+| `Effect.catchSomeDefect` | Removed |
+
+## Effect.catchAll → Effect.catch
+
+<CodeGroup>
+```ts v3
+import { Effect } from "effect"
+
+const program = Effect.fail("error").pipe(
+  Effect.catchAll((error) => Effect.succeed(`recovered: ${error}`))
+)
+```
+
+```ts v4
+import { Effect } from "effect"
+
+const program = Effect.fail("error").pipe(
+  Effect.catch((error) => Effect.succeed(`recovered: ${error}`))
+)
+```
+</CodeGroup>
+
+## Effect.catchAllCause → Effect.catchCause
+
+<CodeGroup>
+```ts v3
+import { Effect } from "effect"
+
+const program = Effect.die("defect").pipe(
+  Effect.catchAllCause((cause) => Effect.succeed("recovered"))
+)
+```
+
+```ts v4
+import { Cause, Effect } from "effect"
+
+const program = Effect.die("defect").pipe(
+  Effect.catchCause((cause) => Effect.succeed("recovered"))
+)
+```
+</CodeGroup>
+
+## Effect.catchSome → Effect.catchFilter
+
+In v3, `catchSome` took a function returning `Option<Effect>`. In v4, `catchFilter` uses the `Filter` module instead.
+
+<CodeGroup>
+```ts v3
+import { Effect, Option } from "effect"
+
+const program = Effect.fail(42).pipe(
+  Effect.catchSome((error) =>
+    error === 42
+      ? Option.some(Effect.succeed("caught"))
+      : Option.none()
+  )
+)
+```
+
+```ts v4
+import { Effect, Filter } from "effect"
+
+const program = Effect.fail(42).pipe(
+  Effect.catchFilter(
+    Filter.fromPredicate((error: number) => error === 42),
+    (error) => Effect.succeed("caught")
+  )
+)
+```
+</CodeGroup>
+
+## New in v4
+
+### Effect.catchReason
+
+Catches a specific `reason` within a tagged error without removing the parent error from the error channel. Useful for handling nested error causes (e.g. an `AiError` with a `reason: RateLimitError | QuotaExceededError`).
+
+```ts
+import { Effect } from "effect"
+
+Effect.catchReason(
+  "AiError",
+  "RateLimitError",
+  (error) => Effect.succeed("rate limited")
+)
+```
+
+### Effect.catchReasons
+
+Like `catchReason` but handles multiple reason tags at once via an object of handlers.
+
+```ts
+import { Effect } from "effect"
+
+Effect.catchReasons("AiError", {
+  RateLimitError: (error) => Effect.succeed("rate limited"),
+  QuotaExceededError: (error) => Effect.succeed("quota exceeded")
+})
+```
+
+### Effect.catchEager
+
+An optimization variant of `catch` that evaluates synchronous recovery effects immediately.
+
+```ts
+import { Effect } from "effect"
+
+const program = Effect.fail("error").pipe(
+  Effect.catchEager((error) => Effect.succeed(`recovered: ${error}`))
+)
+```
+
+## Migration Checklist
+
+When migrating error handling code:
+
+1. **Replace `catchAll` with `catch`** in all error recovery code
+2. **Replace `catchAllCause` with `catchCause`** for cause-level handling
+3. **Replace `catchSome` with `catchFilter`** and convert `Option` logic to `Filter.fromPredicate`
+4. **Update `catchSomeCause` to `catchCauseFilter`** with similar Filter conversion
+5. **Remove `catchSomeDefect`** — this combinator no longer exists
+6. **Keep `catchTag`, `catchTags`, and `catchIf`** — these are unchanged
+
+## Summary
+
+The v4 error handling changes simplify the API surface by:
+
+- Removing the `All` suffix from the most common error recovery combinators
+- Replacing `Option`-based partial catching with `Filter`-based predicates
+- Adding new specialized combinators for nested error handling (`catchReason`, `catchReasons`)
+- Providing optimization hints for synchronous recovery (`catchEager`)
+
+The core error handling model remains the same — these are primarily naming and ergonomic improvements.

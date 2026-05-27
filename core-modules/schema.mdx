@@ -1,0 +1,311 @@
+---
+title: Schema
+description: Runtime validation and type-safe schema definitions for TypeScript
+---
+
+The `Schema` module provides powerful runtime validation and type-safe schema definitions for TypeScript applications. It enables you to define data structures once and use them for validation, parsing, serialization, and type inference.
+
+## Overview
+
+A Schema defines both:
+- The **encoded** representation (e.g., what comes from an API or user input)
+- The **type** representation (e.g., your application's domain model)
+
+Schemas automatically provide:
+- Runtime validation and parsing
+- Type inference for TypeScript
+- JSON Schema generation
+- Serialization and deserialization
+- Custom error messages
+
+## Creating Schemas
+
+### Primitive Types
+
+```ts
+import { Schema } from "effect"
+
+// Basic primitives
+const StringSchema = Schema.String
+const NumberSchema = Schema.Number
+const BooleanSchema = Schema.Boolean
+const IntSchema = Schema.Int
+
+// Date and Duration
+const DateSchema = Schema.Date
+const DurationSchema = Schema.Duration
+```
+
+### Structs and Objects
+
+```ts
+import { Schema } from "effect"
+
+const PersonSchema = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Int,
+  email: Schema.String
+})
+
+// Infer the TypeScript type
+type Person = Schema.Schema.Type<typeof PersonSchema>
+// { name: string; age: number; email: string }
+```
+
+### Optional and Nullable Fields
+
+```ts
+import { Schema } from "effect"
+
+const UserSchema = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+  // Optional field (may be undefined)
+  nickname: Schema.optional(Schema.String),
+  // Nullable field (may be null)
+  bio: Schema.NullOr(Schema.String),
+  // Optional with default value
+  role: Schema.optional(Schema.String).pipe(
+    Schema.withDefault(() => "user")
+  )
+})
+```
+
+### Arrays and Collections
+
+```ts
+import { Schema } from "effect"
+
+const NumberArraySchema = Schema.Array(Schema.Number)
+
+const TagsSchema = Schema.Array(Schema.String).pipe(
+  Schema.minItems(1),
+  Schema.maxItems(10)
+)
+
+// Non-empty arrays
+const NonEmptyArraySchema = Schema.NonEmptyArray(Schema.String)
+```
+
+## Parsing and Validation
+
+### Using makeUnsafe
+
+```ts
+import { Schema } from "effect"
+
+const PersonSchema = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Int
+})
+
+// Parse and validate (throws on error)
+try {
+  const person = PersonSchema.makeUnsafe({
+    name: "Alice",
+    age: 30
+  })
+  console.log(person)
+} catch (error) {
+  console.error("Validation failed:", error)
+}
+```
+
+### Using makeOption
+
+```ts
+import { Schema } from "effect"
+import { Option } from "effect"
+
+const result = PersonSchema.makeOption({ name: "Bob", age: 25 })
+
+if (Option.isSome(result)) {
+  console.log("Valid:", result.value)
+} else {
+  console.log("Invalid input")
+}
+```
+
+### With Effect Integration
+
+```ts
+import { Effect, Schema } from "effect"
+
+const parseUser = (input: unknown) =>
+  Effect.gen(function*() {
+    const UserSchema = Schema.Struct({
+      name: Schema.String,
+      age: Schema.Int
+    })
+    
+    // Decode returns an Effect
+    const user = yield* Schema.decode(UserSchema)(input)
+    return user
+  })
+```
+
+## Custom Validations
+
+### Refinements
+
+```ts
+import { Schema } from "effect"
+
+const PositiveInt = Schema.Int.pipe(
+  Schema.filter((n) => n > 0, {
+    message: () => "Must be positive"
+  })
+)
+
+const EmailSchema = Schema.String.pipe(
+  Schema.filter(
+    (s) => s.includes("@"),
+    { message: () => "Invalid email format" }
+  )
+)
+```
+
+### Transformations
+
+```ts
+import { Schema } from "effect"
+
+// Transform from string to Date
+const DateFromString = Schema.transform(
+  Schema.String,
+  Schema.Date,
+  {
+    decode: (s) => new Date(s),
+    encode: (d) => d.toISOString()
+  }
+)
+
+// Transform with validation
+const TrimmedString = Schema.transform(
+  Schema.String,
+  Schema.String,
+  {
+    decode: (s) => s.trim(),
+    encode: (s) => s
+  }
+)
+```
+
+## Tagged Errors
+
+```ts
+import { Schema } from "effect"
+
+// Define custom errors with Schema
+export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()("ValidationError", {
+  message: Schema.String,
+  field: Schema.optional(Schema.String)
+}) {}
+
+// Use in Effects
+const validateAge = (age: number) =>
+  age >= 18
+    ? Effect.succeed(age)
+    : Effect.fail(new ValidationError({
+        message: "Must be 18 or older",
+        field: "age"
+      }))
+```
+
+## Union Types
+
+```ts
+import { Schema } from "effect"
+
+// Simple union
+const StringOrNumber = Schema.Union(
+  Schema.String,
+  Schema.Number
+)
+
+// Discriminated union
+type Result = Schema.Schema.Type<typeof ResultSchema>
+
+const ResultSchema = Schema.Union(
+  Schema.Struct({
+    _tag: Schema.Literal("success"),
+    value: Schema.String
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("error"),
+    error: Schema.String
+  })
+)
+```
+
+## Records and Dictionaries
+
+```ts
+import { Schema } from "effect"
+
+// Record with string keys and number values
+const ScoresSchema = Schema.Record({
+  key: Schema.String,
+  value: Schema.Number
+})
+
+type Scores = Schema.Schema.Type<typeof ScoresSchema>
+// Record<string, number>
+```
+
+## Annotations and Documentation
+
+```ts
+import { Schema } from "effect"
+
+const PersonSchema = Schema.Struct({
+  name: Schema.String.pipe(
+    Schema.annotate({
+      title: "Full Name",
+      description: "The person's full legal name"
+    })
+  ),
+  age: Schema.Int.pipe(
+    Schema.annotate({
+      title: "Age",
+      description: "Age in years",
+      minimum: 0,
+      maximum: 150
+    })
+  )
+})
+```
+
+## Type Inference
+
+```ts
+import { Schema } from "effect"
+
+const UserSchema = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+  role: Schema.Literal("admin", "user")
+})
+
+// Extract the Type (decoded form)
+type User = Schema.Schema.Type<typeof UserSchema>
+// { id: number; name: string; role: "admin" | "user" }
+
+// Extract the Encoded form
+type UserEncoded = Schema.Schema.Encoded<typeof UserSchema>
+// { id: number; name: string; role: "admin" | "user" }
+```
+
+## Best Practices
+
+1. **Define schemas at the boundaries**: Validate external data at API boundaries
+2. **Use Schema.TaggedErrorClass**: Define custom errors with schemas for better type safety
+3. **Compose schemas**: Build complex schemas from simpler ones
+4. **Add annotations**: Document your schemas for better JSON Schema generation and error messages
+5. **Prefer makeOption over makeUnsafe**: Use `makeOption` when validation failure is expected
+
+## Next Steps
+
+- Learn about [Effect](/core-modules/effect) for error handling
+- Explore [Config](/core-modules/config) for configuration management
+- See how [Stream](/core-modules/stream) uses schemas for validation

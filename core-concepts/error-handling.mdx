@@ -1,0 +1,171 @@
+---
+title: Error Handling
+description: Learn type-safe error handling with Schema.TaggedErrorClass, Effect.catchTag, and Effect.catchReason
+---
+
+## Type-Safe Error Handling
+
+Effect provides a type-safe approach to error handling where errors are tracked in the type system. This allows you to handle errors explicitly and ensures you don't forget to handle failure cases.
+
+## Defining Custom Errors with Schema.TaggedErrorClass
+
+Use `Schema.TaggedErrorClass` to define custom errors with a `_tag` field for discrimination:
+
+```ts
+import { Schema } from "effect"
+
+// Define custom errors using Schema.TaggedErrorClass
+export class ParseError extends Schema.TaggedErrorClass<ParseError>()("ParseError", {
+  input: Schema.String,
+  message: Schema.String
+}) {}
+
+export class ReservedPortError extends Schema.TaggedErrorClass<ReservedPortError>()("ReservedPortError", {
+  port: Schema.Number
+}) {}
+```
+
+## Handling Errors with Effect.catchTag
+
+Use `Effect.catchTag` to handle a specific error by its tag:
+
+```ts
+import { Effect } from "effect"
+
+declare const loadPort: (input: string) => Effect.Effect<number, ParseError | ReservedPortError>
+
+export const withFinalFallback = loadPort("invalid").pipe(
+  // Catch a specific error with Effect.catchTag
+  Effect.catchTag("ReservedPortError", (_) => Effect.succeed(3000)),
+  // Catch all errors with Effect.catch
+  Effect.catch((_) => Effect.succeed(3000))
+)
+```
+
+You can also catch multiple errors at once by passing an array of tags:
+
+```ts
+export const recovered = loadPort("80").pipe(
+  // Catch multiple errors with Effect.catchTag, and return a default port number.
+  Effect.catchTag(["ParseError", "ReservedPortError"], (_) => Effect.succeed(3000))
+)
+```
+
+## Handling Multiple Errors with Effect.catchTags
+
+Use `Effect.catchTags` to handle several tagged errors in one place with different handlers:
+
+```ts
+import { Effect, Schema } from "effect"
+
+export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()("ValidationError", {
+  message: Schema.String
+}) {}
+
+export class NetworkError extends Schema.TaggedErrorClass<NetworkError>()("NetworkError", {
+  statusCode: Schema.Number
+}) {}
+
+declare const fetchUser: (id: string) => Effect.Effect<string, ValidationError | NetworkError>
+
+export const userOrFallback = fetchUser("123").pipe(
+  Effect.catchTags({
+    ValidationError: (error) => Effect.succeed(`Validation failed: ${error.message}`),
+    NetworkError: (error) => Effect.succeed(`Network request failed with status ${error.statusCode}`)
+  })
+)
+```
+
+## Error Reasons with Effect.catchReason
+
+For errors with nested reason fields, Effect provides specialized handling with `Effect.catchReason` and `Effect.catchReasons`:
+
+### Defining Errors with Reasons
+
+```ts
+import { Effect, Schema } from "effect"
+
+export class RateLimitError extends Schema.TaggedErrorClass<RateLimitError>()("RateLimitError", {
+  retryAfter: Schema.Number
+}) {}
+
+export class QuotaExceededError extends Schema.TaggedErrorClass<QuotaExceededError>()("QuotaExceededError", {
+  limit: Schema.Number
+}) {}
+
+export class SafetyBlockedError extends Schema.TaggedErrorClass<SafetyBlockedError>()("SafetyBlockedError", {
+  category: Schema.String
+}) {}
+
+export class AiError extends Schema.TaggedErrorClass<AiError>()("AiError", {
+  reason: Schema.Union([RateLimitError, QuotaExceededError, SafetyBlockedError])
+}) {}
+```
+
+### Handling One Reason
+
+Use `Effect.catchReason` to handle a specific reason type:
+
+```ts
+declare const callModel: Effect.Effect<string, AiError>
+
+export const handleOneReason = callModel.pipe(
+  // Use `Effect.catchReason` to handle a specific reason type
+  Effect.catchReason(
+    "AiError", // The parent error _tag to catch
+    "RateLimitError", // The reason _tag to catch
+    // The handler for the caught reason
+    (reason) => Effect.succeed(`Retry after ${reason.retryAfter} seconds`),
+    // Optionally handle all the other reasons with a catch-all handler
+    (reason) => Effect.succeed(`Model call failed for reason: ${reason._tag}`)
+  )
+)
+```
+
+### Handling Multiple Reasons
+
+Use `Effect.catchReasons` to handle multiple reason types:
+
+```ts
+export const handleMultipleReasons = callModel.pipe(
+  // Use `Effect.catchReasons` to handle multiple reason types for a given error
+  // in one go
+  Effect.catchReasons(
+    "AiError",
+    {
+      RateLimitError: (reason) => Effect.succeed(`Retry after ${reason.retryAfter} seconds`),
+      QuotaExceededError: (reason) => Effect.succeed(`Quota exceeded at ${reason.limit} tokens`)
+    }
+    // Optionally handle all the other reasons with a catch-all handler
+    // (reason) => Effect.succeed(`Unhandled reason: ${reason._tag}`)
+  )
+)
+```
+
+### Unwrapping Reasons into the Error Channel
+
+Use `Effect.unwrapReason` to move reasons into the error channel for standard error handling:
+
+```ts
+export const unwrapAndHandle = callModel.pipe(
+  // Use `Effect.unwrapReason` to move the reasons into the error channel, then
+  // handle them all with `Effect.catchTags` or other error handling combinators
+  Effect.unwrapReason("AiError"),
+  Effect.catchTags({
+    RateLimitError: (reason) => Effect.succeed(`Back off for ${reason.retryAfter} seconds`),
+    QuotaExceededError: (reason) => Effect.succeed(`Increase quota beyond ${reason.limit}`),
+    SafetyBlockedError: (reason) => Effect.succeed(`Blocked by safety category: ${reason.category}`)
+  })
+)
+```
+
+## Best Practices
+
+- Define errors with `Schema.TaggedErrorClass` for type safety and discrimination
+- Use `Effect.catchTag` to handle specific errors by their tag
+- Use `Effect.catchTags` to handle multiple error types with different handlers
+- Use `Effect.catch` to handle all errors uniformly
+- For errors with reasons, use `Effect.catchReason` or `Effect.catchReasons`
+- Use `Effect.unwrapReason` when you want to handle reasons as top-level errors
+- Always return when raising an error to help TypeScript's control flow analysis
+- Include relevant context in your error classes (IDs, input values, etc.)

@@ -1,0 +1,409 @@
+---
+title: Testing Effect Programs
+description: Write tests for Effect programs using @effect/vitest with it.effect, TestClock, and layer testing patterns
+---
+
+## Overview
+
+Effect provides first-class testing support through the `@effect/vitest` package. This integration makes it easy to test Effect programs with:
+- **it.effect**: Write tests using Effect.gen syntax
+- **TestClock**: Control time for testing scheduled operations
+- **Layer testing**: Share service layers across tests
+- **Property-based testing**: Generate test cases with Schema
+
+## Installation
+
+Install the testing package:
+
+```bash
+npm install --save-dev @effect/vitest
+```
+
+## Basic Tests with it.effect
+
+### Writing Your First Test
+
+Use `it.effect` instead of regular `it` to test Effect code:
+
+```typescript
+import { assert, describe, it } from "@effect/vitest"
+import { Effect } from "effect"
+
+describe("@effect/vitest basics", () => {
+  it.effect("runs Effect code with assert helpers", () =>
+    Effect.gen(function*() {
+      const upper = ["ada", "lin"].map((name) => name.toUpperCase())
+      assert.deepStrictEqual(upper, ["ADA", "LIN"])
+      assert.strictEqual(upper.length, 2)
+      assert.isTrue(upper.includes("ADA"))
+    })
+  )
+})
+```
+
+### Parameterized Tests
+
+Test multiple cases with `it.effect.each`:
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect } from "effect"
+
+it.effect.each([
+  { input: " Ada ", expected: "ada" },
+  { input: " Lin ", expected: "lin" },
+  { input: " Nia ", expected: "nia" }
+])("parameterized normalization %#", ({ input, expected }) =>
+  Effect.gen(function*() {
+    assert.strictEqual(input.trim().toLowerCase(), expected)
+  })
+)
+```
+
+## Controlling Time with TestClock
+
+The `TestClock` service lets you control virtual time in tests:
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect, Fiber } from "effect"
+import { TestClock } from "effect/testing"
+
+it.effect("controls time with TestClock", () =>
+  Effect.gen(function*() {
+    const fiber = yield* Effect.forkChild(
+      Effect.sleep(60_000).pipe(Effect.as("done" as const))
+    )
+    
+    // Move virtual time forward to complete sleeping fibers immediately
+    yield* TestClock.adjust(60_000)
+    
+    const value = yield* Fiber.join(fiber)
+    assert.strictEqual(value, "done")
+  })
+)
+```
+
+This is essential for testing:
+- Scheduled operations
+- Retry logic with delays
+- Timeout behavior
+- Rate limiting
+
+## Testing with Real Runtime Services
+
+Use `it.live` when you need real runtime services (like actual time):
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect } from "effect"
+
+it.live("uses real runtime services", () =>
+  Effect.gen(function*() {
+    const startedAt = Date.now()
+    yield* Effect.sleep(1)
+    assert.isTrue(Date.now() >= startedAt)
+  })
+)
+```
+
+## Property-Based Testing
+
+Generate test cases automatically using Schema arbitraries:
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect, Schema } from "effect"
+
+it.effect.prop(
+  "reversing twice is identity",
+  [Schema.String],
+  ([value]) =>
+    Effect.gen(function*() {
+      const reversedTwice = value.split("").reverse().reverse().join("")  
+      assert.strictEqual(reversedTwice, value)
+    })
+)
+```
+
+## Testing Services with Layers
+
+### Creating Test Services
+
+Define test-specific implementations using test refs:
+
+```typescript
+import { Array, Effect, Layer, Ref, ServiceMap } from "effect"
+
+export interface Todo {
+  readonly id: number
+  readonly title: string
+}
+
+// Test ref service for storing test data
+export class TodoRepoTestRef extends ServiceMap.Service<
+  TodoRepoTestRef,
+  Ref.Ref<Array<Todo>>
+>()("app/TodoRepoTestRef") {
+  static readonly layer = Layer.effect(TodoRepoTestRef, Ref.make(Array.empty()))
+}
+
+class TodoRepo extends ServiceMap.Service<TodoRepo, {
+  create(title: string): Effect.Effect<Todo>
+  readonly list: Effect.Effect<ReadonlyArray<Todo>>
+}>()("app/TodoRepo") {
+  static readonly layerTest = Layer.effect(
+    TodoRepo,
+    Effect.gen(function*() {
+      const store = yield* TodoRepoTestRef
+      
+      const create = Effect.fn("TodoRepo.create")(function*(title: string) {
+        const todos = yield* Ref.get(store)
+        const todo = { id: todos.length + 1, title }
+        yield* Ref.set(store, [...todos, todo])
+        return todo
+      })
+      
+      const list = Ref.get(store)
+      
+      return TodoRepo.of({ create, list })
+    })
+  ).pipe(
+    // Provide test ref as a dependency
+    Layer.provideMerge(TodoRepoTestRef.layer)
+  )
+}
+```
+
+### Testing with Shared Layers
+
+Use `layer(...)` to create one shared layer for multiple tests:
+
+```typescript
+import { assert, layer } from "@effect/vitest"
+import { Effect } from "effect"
+
+layer(TodoRepo.layerTest)("TodoRepo", (it) => {
+  it.effect("tests repository behavior", () =>
+    Effect.gen(function*() {
+      const repo = yield* TodoRepo
+      const before = (yield* repo.list).length
+      assert.strictEqual(before, 0)
+      
+      yield* repo.create("Write docs")
+      
+      const after = (yield* repo.list).length
+      assert.strictEqual(after, 1)
+    })
+  )
+  
+  it.effect("layer is shared", () =>
+    Effect.gen(function*() {
+      const repo = yield* TodoRepo
+      const before = (yield* repo.list).length
+      assert.strictEqual(before, 1) // Previous test data is still present
+      
+      yield* repo.create("Write docs again")
+      
+      const after = (yield* repo.list).length
+      assert.strictEqual(after, 2)
+    })
+  )
+})
+```
+
+The `layer(...)` function:
+- Creates the layer once before all tests
+- Shares it across all tests in the block
+- Tears it down in `afterAll`
+
+### Testing Higher-Level Services
+
+Test services that depend on other services:
+
+```typescript
+import { assert, describe, it } from "@effect/vitest"
+import { Effect, Layer, ServiceMap } from "effect"
+
+class TodoService extends ServiceMap.Service<TodoService, {
+  addAndCount(title: string): Effect.Effect<number>
+  readonly titles: Effect.Effect<ReadonlyArray<string>>
+}>()("app/TodoService") {
+  static readonly layerNoDeps = Layer.effect(
+    TodoService,
+    Effect.gen(function*() {
+      const repo = yield* TodoRepo
+      
+      const addAndCount = Effect.fn("TodoService.addAndCount")(
+        function*(title: string) {
+          yield* repo.create(title)
+          const todos = yield* repo.list
+          return todos.length
+        }
+      )
+      
+      const titles = repo.list.pipe(
+        Effect.map((todos) => todos.map((todo) => todo.title))
+      )
+      
+      return TodoService.of({ addAndCount, titles })
+    })
+  )
+  
+  static readonly layerTest = this.layerNoDeps.pipe(
+    // Provide test repo layer and its dependencies
+    Layer.provideMerge(TodoRepo.layerTest)
+  )
+}
+
+describe("TodoService", () => {
+  it.effect("tests higher-level service logic", () =>
+    Effect.gen(function*() {
+      const ref = yield* TodoRepoTestRef
+      const service = yield* TodoService
+      
+      const count = yield* service.addAndCount("Review docs")
+      const titles = yield* service.titles
+      
+      assert.isTrue(count >= 1)
+      assert.isTrue(titles.some((title) => title.includes("Review docs")))
+      
+      // Access test ref directly for assertions
+      const todos = yield* Ref.get(ref)
+      assert.isTrue(todos.length >= 1)
+    }).pipe(
+      Effect.provide(TodoService.layerTest)
+    )
+  )
+})
+```
+
+## Test Patterns
+
+### Testing Error Handling
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect, Exit } from "effect"
+
+class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>()(
+  "UserNotFound",
+  { id: Schema.Number }
+) {}
+
+it.effect("handles user not found error", () =>
+  Effect.gen(function*() {
+    const result = yield* getUserById(999).pipe(
+      Effect.exit
+    )
+    
+    assert.isTrue(Exit.isFailure(result))
+    
+    if (Exit.isFailure(result)) {
+      const error = result.cause.failures[0]
+      assert.instanceOf(error, UserNotFound)
+      assert.strictEqual(error.id, 999)
+    }
+  })
+)
+```
+
+### Testing Retry Logic
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect, Ref, Schedule } from "effect"
+import { TestClock } from "effect/testing"
+
+it.effect("retries with exponential backoff", () =>
+  Effect.gen(function*() {
+    const attempts = yield* Ref.make(0)
+    
+    const task = Effect.gen(function*() {
+      const count = yield* Ref.updateAndGet(attempts, (n) => n + 1)
+      if (count < 3) {
+        return yield* Effect.fail("temporary error")
+      }
+      return "success"
+    })
+    
+    const fiber = yield* task.pipe(
+      Effect.retry(Schedule.exponential("100 millis")),
+      Effect.forkChild
+    )
+    
+    // Fast-forward through retry delays
+    yield* TestClock.adjust("100 millis")
+    yield* TestClock.adjust("200 millis")
+    
+    const result = yield* Fiber.join(fiber)
+    assert.strictEqual(result, "success")
+    
+    const finalAttempts = yield* Ref.get(attempts)
+    assert.strictEqual(finalAttempts, 3)
+  })
+)
+```
+
+### Testing Concurrent Operations
+
+```typescript
+import { assert, it } from "@effect/vitest"
+import { Effect, Ref } from "effect"
+
+it.effect("handles concurrent updates", () =>
+  Effect.gen(function*() {
+    const counter = yield* Ref.make(0)
+    
+    yield* Effect.forEach(
+      Array.from({ length: 10 }, (_, i) => i),
+      () => Ref.update(counter, (n) => n + 1),
+      { concurrency: "unbounded" }
+    )
+    
+    const final = yield* Ref.get(counter)
+    assert.strictEqual(final, 10)
+  })
+)
+```
+
+## Best Practices
+
+1. **Use it.effect for Effect code**: Always use `it.effect` when testing Effect programs
+2. **Use TestClock for time-based tests**: Don't use real delays in tests
+3. **Share layers with layer(...)**: Avoid recreating services for each test
+4. **Create test-specific layers**: Use `layerTest` for test implementations
+5. **Use property-based testing**: Catch edge cases with generated inputs
+6. **Test error cases**: Use `Effect.exit` to test failure scenarios
+7. **Mock external dependencies**: Replace real services with test implementations
+8. **Test at the right level**: Test business logic through service interfaces
+
+## Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm test -- --watch
+
+# Run tests with coverage
+npm test -- --coverage
+
+# Run specific test file
+npm test -- path/to/test.test.ts
+```
+
+## Assertion Helpers
+
+The `assert` object from `@effect/vitest` provides:
+
+- `assert.strictEqual(actual, expected)`
+- `assert.deepStrictEqual(actual, expected)`
+- `assert.isTrue(value)`
+- `assert.isFalse(value)`
+- `assert.instanceOf(value, Class)`
+- `assert.throws(() => code)`
+- `assert.rejects(async () => code)`
+
+See the [Vitest assertion API](https://vitest.dev/api/expect.html) for the complete list.

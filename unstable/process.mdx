@@ -1,0 +1,291 @@
+---
+title: "Process"
+description: "Manage child processes and build command pipelines with Effect"
+---
+
+## Overview
+
+The `effect/unstable/process` modules provide tools for spawning and managing child processes with:
+
+- Type-safe process definitions
+- Streaming output handling
+- Command pipelines
+- Error handling and exit codes
+
+## Basic usage
+
+```typescript
+import { Effect, Layer, ServiceMap } from "effect"
+import { NodeServices } from "@effect/platform-node"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+
+class DevTools extends ServiceMap.Service<DevTools, {
+  readonly nodeVersion: Effect.Effect<string, DevToolsError>
+}>()("app/DevTools") {
+  static readonly layer = Layer.effect(
+    DevTools,
+    Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+      const nodeVersion = spawner.string(
+        ChildProcess.make("node", ["--version"])
+      ).pipe(
+        Effect.map(String.trim),
+        Effect.mapError((cause) => new DevToolsError({ cause }))
+      )
+
+      return DevTools.of({ nodeVersion })
+    })
+  ).pipe(
+    Layer.provide(NodeServices.layer)
+  )
+}
+```
+
+## Creating process definitions
+
+```typescript
+import { ChildProcess } from "effect/unstable/process"
+
+// Basic command
+const listFiles = ChildProcess.make("ls", ["-la"])
+
+// With environment variables
+const build = ChildProcess.make("pnpm", ["build"], {
+  env: { NODE_ENV: "production" },
+  extendEnv: true
+})
+
+// With working directory
+const gitStatus = ChildProcess.make("git", ["status"], {
+  cwd: "/path/to/repo"
+})
+```
+
+## Collecting output
+
+### String output
+
+Collect entire output as a string:
+
+```typescript
+const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+const output = yield* spawner.string(
+  ChildProcess.make("echo", ["Hello, World!"])
+)
+```
+
+### Line output
+
+Collect output as an array of lines:
+
+```typescript
+const files = yield* spawner.lines(
+  ChildProcess.make("git", ["diff", "--name-only", "main...HEAD"])
+)
+
+const tsFiles = files.filter(file => file.endsWith(".ts"))
+```
+
+## Streaming output
+
+Stream process output while it's running:
+
+```typescript
+import { Stream, Console } from "effect"
+
+const runLintFix = Effect.gen(function*() {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+  const handle = yield* spawner.spawn(
+    ChildProcess.make("pnpm", ["lint-fix"], {
+      env: { FORCE_COLOR: "1" },
+      extendEnv: true
+    })
+  )
+
+  yield* handle.all.pipe(
+    Stream.decodeText(),
+    Stream.splitLines,
+    Stream.runForEach((line) => Console.log(`[lint] ${line}`))
+  )
+
+  const exitCode = yield* handle.exitCode
+  
+  if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
+    return yield* Effect.fail(new ProcessError({ exitCode }))
+  }
+}).pipe(
+  Effect.scoped
+)
+```
+
+## Building pipelines
+
+Compose commands into pipelines:
+
+```typescript
+const recentCommits = spawner.lines(
+  ChildProcess.make("git", ["log", "--pretty=format:%s", "-n", "20"]).pipe(
+    ChildProcess.pipeTo(ChildProcess.make("head", ["-n", "5"]))
+  )
+)
+```
+
+## Handling exit codes
+
+```typescript
+const result = yield* spawner.spawn(
+  ChildProcess.make("npm", ["test"])
+).pipe(
+  Effect.flatMap((handle) =>
+    Effect.gen(function*() {
+      const exitCode = yield* handle.exitCode
+      
+      if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
+        return yield* Effect.fail(
+          new TestError({ exitCode })
+        )
+      }
+      
+      return exitCode
+    })
+  ),
+  Effect.scoped
+)
+```
+
+## Accessing streams
+
+Access stdout, stderr, and combined output:
+
+```typescript
+const handle = yield* spawner.spawn(process)
+
+// Standard output only
+const stdout = handle.stdout.pipe(
+  Stream.decodeText(),
+  Stream.runCollect
+)
+
+// Standard error only
+const stderr = handle.stderr.pipe(
+  Stream.decodeText(),
+  Stream.runCollect
+)
+
+// Combined output (stdout + stderr)
+const all = handle.all.pipe(
+  Stream.decodeText(),
+  Stream.runCollect
+)
+```
+
+## Complete example
+
+```typescript
+import { NodeServices } from "@effect/platform-node"
+import { Console, Effect, Layer, Schema, ServiceMap, Stream, String } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+
+export class DevToolsError extends Schema.TaggedErrorClass<DevToolsError>()("DevToolsError", {
+  cause: Schema.Defect
+}) {}
+
+export class DevTools extends ServiceMap.Service<DevTools, {
+  readonly nodeVersion: Effect.Effect<string, DevToolsError>
+  readonly recentCommitSubjects: Effect.Effect<ReadonlyArray<string>, DevToolsError>
+  readonly runLintFix: Effect.Effect<void, DevToolsError>
+  changedTypeScriptFiles(baseRef: string): Effect.Effect<ReadonlyArray<string>, DevToolsError>
+}>()("docs/DevTools") {
+  static readonly layer = Layer.effect(
+    DevTools,
+    Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+      const nodeVersion = spawner.string(
+        ChildProcess.make("node", ["--version"])
+      ).pipe(
+        Effect.map(String.trim),
+        Effect.mapError((cause) => new DevToolsError({ cause }))
+      )
+
+      const changedTypeScriptFiles = Effect.fn("DevTools.changedTypeScriptFiles")(function*(baseRef: string) {
+        yield* Effect.annotateCurrentSpan({ baseRef })
+
+        const files = yield* spawner.lines(
+          ChildProcess.make("git", ["diff", "--name-only", `${baseRef}...HEAD`])
+        ).pipe(
+          Effect.mapError((cause) => new DevToolsError({ cause }))
+        )
+
+        return files.filter((file) => file.endsWith(".ts"))
+      })
+
+      const recentCommitSubjects = spawner.lines(
+        ChildProcess.make("git", ["log", "--pretty=format:%s", "-n", "20"]).pipe(
+          ChildProcess.pipeTo(ChildProcess.make("head", ["-n", "5"]))
+        )
+      ).pipe(
+        Effect.mapError((cause) => new DevToolsError({ cause }))
+      )
+
+      const runLintFix = Effect.gen(function*() {
+        const handle = yield* spawner.spawn(
+          ChildProcess.make("pnpm", ["lint-fix"], {
+            env: { FORCE_COLOR: "1" },
+            extendEnv: true
+          })
+        ).pipe(
+          Effect.mapError((cause) => new DevToolsError({ cause }))
+        )
+
+        yield* handle.all.pipe(
+          Stream.decodeText(),
+          Stream.splitLines,
+          Stream.runForEach((line) => Console.log(`[lint-fix] ${line}`)),
+          Effect.mapError((cause) => new DevToolsError({ cause }))
+        )
+
+        const exitCode = yield* handle.exitCode.pipe(
+          Effect.mapError((cause) => new DevToolsError({ cause }))
+        )
+
+        if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
+          return yield* new DevToolsError({
+            cause: new Error(`pnpm lint-fix failed with exit code ${exitCode}`)
+          })
+        }
+      }).pipe(
+        Effect.scoped
+      )
+
+      return DevTools.of({
+        nodeVersion,
+        changedTypeScriptFiles,
+        recentCommitSubjects,
+        runLintFix
+      })
+    })
+  ).pipe(
+    Layer.provide(NodeServices.layer)
+  )
+}
+
+export const program = Effect.gen(function*() {
+  const tools = yield* DevTools
+
+  const version = yield* tools.nodeVersion
+  yield* Effect.log(`node=${version}`)
+
+  const files = yield* tools.changedTypeScriptFiles("main")
+  yield* Effect.log(`Changed TS files: ${files.length}`)
+}).pipe(
+  Effect.provide(DevTools.layer)
+)
+```
+
+## See also
+
+- [CLI](/unstable/cli) - Build CLI applications

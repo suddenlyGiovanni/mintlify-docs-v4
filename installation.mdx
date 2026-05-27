@@ -1,0 +1,187 @@
+---
+title: Installation
+description: Install Effect and set up your TypeScript project
+---
+
+# Installation
+
+Get started with Effect by installing the package in your TypeScript project.
+
+<Note>
+  Effect v4.0.0-beta is currently in beta. The package is production-ready, but the version number indicates that minor API changes may occur before the stable 4.0.0 release.
+</Note>
+
+## Install Effect
+
+Install the `effect` package using your preferred package manager:
+
+<CodeGroup>
+```bash npm
+npm install effect
+```
+
+```bash yarn
+yarn add effect
+```
+
+```bash pnpm
+pnpm add effect
+```
+
+```bash bun
+bun add effect
+```
+</CodeGroup>
+
+The current beta version is `4.0.0-beta.21`.
+
+## Requirements
+
+Effect requires the following minimum versions:
+
+- **TypeScript**: 5.9 or higher
+- **Node.js**: 18.0 or higher (for Node.js environments)
+
+<Tip>
+  Effect also works in Bun, Deno, browsers, and other JavaScript runtimes. The library is platform-agnostic at its core.
+</Tip>
+
+## TypeScript configuration
+
+Ensure your `tsconfig.json` has strict mode enabled for the best type-safety:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022"
+  }
+}
+```
+
+## Project setup
+
+<Steps>
+  <Step title="Create a new project">
+    If you're starting from scratch, create a new directory and initialize a package.json:
+    
+    ```bash
+    mkdir my-effect-app
+    cd my-effect-app
+    npm init -y
+    ```
+  </Step>
+  
+  <Step title="Install TypeScript">
+    Add TypeScript as a dev dependency:
+    
+    ```bash
+    npm install --save-dev typescript
+    ```
+  </Step>
+  
+  <Step title="Install Effect">
+    Install the Effect library:
+    
+    ```bash
+    npm install effect
+    ```
+  </Step>
+  
+  <Step title="Configure TypeScript">
+    Create a `tsconfig.json` file with the recommended settings:
+    
+    ```json
+    {
+      "compilerOptions": {
+        "strict": true,
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "target": "ES2022",
+        "outDir": "./dist",
+        "rootDir": "./src"
+      },
+      "include": ["src"]
+    }
+    ```
+  </Step>
+  
+  <Step title="Create your first file">
+    Create a `src/index.ts` file and you're ready to start coding!
+  </Step>
+</Steps>
+
+## Package structure
+
+Effect is distributed as a single package with multiple entry points:
+
+- `effect` - Core functionality (Effect, Schema, Layer, etc.)
+- `effect/testing` - Testing utilities
+- `effect/unstable/ai` - AI and language model integrations
+- `effect/unstable/cli` - CLI application utilities
+- `effect/unstable/cluster` - Distributed cluster capabilities
+- `effect/unstable/http` - HTTP client
+- `effect/unstable/httpapi` - HTTP API server
+- `effect/unstable/observability` - Observability exports (OTLP, etc.)
+- `effect/unstable/process` - Child process management
+- `effect/unstable/sql` - SQL database integrations
+- And many more...
+
+<Note>
+  Modules under `unstable/` are stable in functionality but may have API changes as they graduate to the stable API surface.
+</Note>
+
+## Platform packages
+
+For Node.js or Bun-specific functionality, you may want to install platform packages:
+
+<CodeGroup>
+```bash Node.js
+npm install @effect/platform-node
+```
+
+```bash Bun
+npm install @effect/platform-bun
+```
+</CodeGroup>
+
+These provide platform-specific implementations for:
+
+- File system operations
+- HTTP server and client
+- Command line interface utilities
+- Process management
+- Runtime utilities
+
+## Verify installation
+
+Create a simple test file to verify everything is working:
+
+```typescript src/test.ts
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  yield* Effect.log("Effect is installed and working!")
+  return "success"
+})
+
+Effect.runPromise(program).then(console.log)
+```
+
+Run it with:
+
+```bash
+npx tsx src/test.ts
+```
+
+You should see the log message and "success" output.
+
+## Next steps
+
+Now that Effect is installed, continue to the quick start guide to build your first program:
+
+<Card title="Quick start" icon="rocket" href="/quickstart">
+  Build your first Effect program
+</Card>

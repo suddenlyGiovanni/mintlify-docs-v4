@@ -1,0 +1,361 @@
+---
+title: Layer
+description: Dependency injection and service composition with Effect Layers
+---
+
+The `Layer` module provides a powerful dependency injection system for building modular, testable Effect applications. Layers describe how to construct services and their dependencies.
+
+## Overview
+
+A `Layer<ROut, E, RIn>` describes how to build services:
+- `ROut`: The services this layer provides
+- `E`: Possible errors during layer construction
+- `RIn`: The services this layer requires as dependencies
+
+Layers are the idiomatic way to create services that depend on other services in Effect. By default, layers are shared, meaning the same layer instance is reused across the application.
+
+## Creating Layers
+
+### Basic Layer from a Service
+
+```ts
+import { Effect, Layer, ServiceMap } from "effect"
+
+class Database extends ServiceMap.Service<Database, {
+  query(sql: string): Effect.Effect<Array<unknown>, Error>
+}>()("Database") {
+  static readonly layer = Layer.effect(
+    Database,
+    Effect.gen(function*() {
+      yield* Effect.log("Initializing database")
+      
+      const query = (sql: string) =>
+        Effect.gen(function*() {
+          yield* Effect.log("Executing:", sql)
+          return [{ id: 1, name: "Alice" }]
+        })
+      
+      return Database.of({ query })
+    })
+  )
+}
+```
+
+### Layer with Dependencies
+
+```ts
+import { Effect, Layer, ServiceMap } from "effect"
+
+// Config service
+class Config extends ServiceMap.Service<Config, {
+  connectionString: string
+}>()("Config") {
+  static readonly layer = Layer.succeed(Config)({
+    connectionString: "postgresql://localhost/mydb"
+  })
+}
+
+// Database depends on Config
+class Database extends ServiceMap.Service<Database, {
+  query(sql: string): Effect.Effect<Array<unknown>, Error>
+}>()("Database") {
+  static readonly layer = Layer.effect(
+    Database,
+    Effect.gen(function*() {
+      const config = yield* Config
+      
+      yield* Effect.log("Connecting to:", config.connectionString)
+      
+      return Database.of({
+        query: (sql) => Effect.succeed([{ result: "data" }])
+      })
+    })
+  )
+}
+```
+
+## Layer Constructors
+
+### Layer.succeed
+
+Create a layer that succeeds with a value:
+
+```ts
+import { Layer, ServiceMap } from "effect"
+
+class Logger extends ServiceMap.Service<Logger, {
+  log(message: string): void
+}>()("Logger") {
+  static readonly layer = Layer.succeed(Logger)({
+    log: (message) => console.log(message)
+  })
+}
+```
+
+### Layer.effect
+
+Create a layer from an Effect:
+
+```ts
+import { Effect, Layer, ServiceMap } from "effect"
+
+class Cache extends ServiceMap.Service<Cache, {
+  get(key: string): Effect.Effect<string | undefined>
+}>()("Cache") {
+  static readonly layer = Layer.effect(
+    Cache,
+    Effect.gen(function*() {
+      const storage = new Map<string, string>()
+      
+      return Cache.of({
+        get: (key) => Effect.succeed(storage.get(key))
+      })
+    })
+  )
+}
+```
+
+### Layer.effectDiscard
+
+Create a layer that runs side effects without providing a service:
+
+```ts
+import { Effect, Layer } from "effect"
+
+// Background task layer
+const heartbeatLayer = Layer.effectDiscard(
+  Effect.gen(function*() {
+    yield* Effect.log("Starting heartbeat")
+    
+    yield* Effect.repeat(
+      Effect.log("Heartbeat tick"),
+      Schedule.spaced("30 seconds")
+    ).pipe(Effect.fork)
+  })
+)
+```
+
+## Composing Layers
+
+### Layer.provide
+
+Provide dependencies to a layer:
+
+```ts
+import { Layer } from "effect"
+
+// Database layer depends on Config
+const DatabaseLayer = Database.layer.pipe(
+  Layer.provide(Config.layer)
+)
+
+// Now DatabaseLayer has no dependencies
+```
+
+### Layer.provideMerge
+
+Merge provided layers with the layer's output:
+
+```ts
+import { Layer } from "effect"
+
+// Provide Config but also expose it
+const AppLayer = Database.layer.pipe(
+  Layer.provideMerge(Config.layer)
+)
+// AppLayer provides both Database and Config
+```
+
+### Combining Multiple Layers
+
+```ts
+import { Layer } from "effect"
+
+// Merge multiple independent layers
+const AppLayer = Layer.merge(
+  Database.layer,
+  Cache.layer,
+  Logger.layer
+)
+
+// All three services are now available
+```
+
+## Using Layers
+
+### Providing Layers to Effects
+
+```ts
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const db = yield* Database
+  const cache = yield* Cache
+  
+  const result = yield* db.query("SELECT * FROM users")
+  return result
+})
+
+// Provide the layer to the program
+const runnable = program.pipe(
+  Effect.provide(AppLayer)
+)
+```
+
+### Layer.launch
+
+Launch a layer as the application entry point:
+
+```ts
+import { Effect, Layer, NodeRuntime } from "effect"
+
+const MainLayer = Layer.effectDiscard(
+  Effect.gen(function*() {
+    const db = yield* Database
+    
+    yield* Effect.log("Application started")
+    
+    // Long-running server or application logic
+    yield* Effect.never // Keep running forever
+  })
+).pipe(
+  Layer.provide(Database.layer)
+)
+
+// Launch the layer
+NodeRuntime.runMain(Layer.launch(MainLayer))
+```
+
+## Resource Management
+
+### Layer with Cleanup
+
+```ts
+import { Effect, Layer, Scope, ServiceMap } from "effect"
+
+class Connection extends ServiceMap.Service<Connection, {
+  execute(cmd: string): Effect.Effect<void>
+}>()("Connection") {
+  static readonly layer = Layer.effect(
+    Connection,
+    Effect.gen(function*() {
+      // Acquire resource
+      yield* Effect.log("Opening connection")
+      
+      // Register cleanup
+      yield* Scope.addFinalizer(
+        Effect.log("Closing connection")
+      )
+      
+      return Connection.of({
+        execute: (cmd) => Effect.log(`Executing: ${cmd}`)
+      })
+    })
+  )
+}
+```
+
+## Layer Memoization
+
+Layers are memoized by default:
+
+```ts
+import { Effect, Layer } from "effect"
+
+// This layer is only constructed once
+const program = Effect.gen(function*() {
+  const db1 = yield* Database
+  const db2 = yield* Database
+  
+  // db1 and db2 are the same instance
+})
+```
+
+To disable memoization:
+
+```ts
+import { Layer } from "effect"
+
+const freshLayer = Layer.fresh(Database.layer)
+// Each use creates a new instance
+```
+
+## Testing with Layers
+
+```ts
+import { Effect, Layer, ServiceMap } from "effect"
+
+// Mock layer for testing
+class MockDatabase extends ServiceMap.Service<Database, {
+  query(sql: string): Effect.Effect<Array<unknown>, Error>
+}>()("Database") {
+  static readonly layer = Layer.succeed(Database)({
+    query: (sql) => Effect.succeed([{ mock: "data" }])
+  })
+}
+
+// Use mock in tests
+const testProgram = program.pipe(
+  Effect.provide(MockDatabase.layer)
+)
+```
+
+## Advanced Patterns
+
+### Dynamic Layer Construction
+
+```ts
+import { Effect, Layer } from "effect"
+
+const makeDatabaseLayer = (connectionString: string) =>
+  Layer.effect(
+    Database,
+    Effect.gen(function*() {
+      yield* Effect.log("Connecting to:", connectionString)
+      
+      return Database.of({
+        query: (sql) => Effect.succeed([])
+      })
+    })
+  )
+
+// Use with Layer.unwrap
+const DatabaseLayer = Layer.unwrap(
+  Effect.gen(function*() {
+    const config = yield* Config
+    return makeDatabaseLayer(config.connectionString)
+  })
+)
+```
+
+### Conditional Layers
+
+```ts
+import { Effect, Layer } from "effect"
+
+const DatabaseLayer = Layer.unwrap(
+  Effect.gen(function*() {
+    const env = yield* getEnvironment()
+    
+    if (env === "test") {
+      return MockDatabase.layer
+    } else {
+      return Database.layer
+    }
+  })
+)
+```
+
+## Best Practices
+
+1. **Define layers as static members**: Attach layers to service classes
+2. **Use Layer.provide for dependencies**: Make dependencies explicit
+3. **Keep layers focused**: Each layer should provide a single service or small group of related services
+4. **Use Layer.merge for independent services**: Combine services that don't depend on each other
+5. **Test with mock layers**: Replace real implementations with mocks for testing
+
+## Next Steps
+
+- Learn about [Effect](/core-modules/effect) for building effectful computations
+- Explore [Config](/core-modules/config) for configuration management
+- Understand how to create services with ServiceMap

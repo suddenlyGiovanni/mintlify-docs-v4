@@ -1,0 +1,487 @@
+---
+title: SQLite
+description: SQLite database clients for Effect across multiple runtimes
+---
+
+Effect provides several SQLite packages optimized for different JavaScript runtimes. All packages share the same API but use runtime-specific SQLite implementations.
+
+## Available Packages
+
+### Node.js
+
+**Package**: `@effect/sql-sqlite-node`
+
+Uses `better-sqlite3` for synchronous, high-performance SQLite access.
+
+```bash
+npm install @effect/sql-sqlite-node better-sqlite3
+```
+
+### Bun
+
+**Package**: `@effect/sql-sqlite-bun`
+
+Uses Bun's native, built-in SQLite support (no external dependencies).
+
+```bash
+bun add @effect/sql-sqlite-bun
+```
+
+### WebAssembly
+
+**Package**: `@effect/sql-sqlite-wasm`
+
+Uses `wa-sqlite` for browser and edge runtime support.
+
+```bash
+npm install @effect/sql-sqlite-wasm @effect/wa-sqlite
+```
+
+## Quick Start
+
+### Node.js
+
+```typescript
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const SqliteLive = SqliteClient.layer({
+  filename: "./mydb.db"
+})
+
+const program = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const users = yield* sql`SELECT * FROM users`
+  return users
+}).pipe(
+  Effect.provide(SqliteLive)
+)
+
+Effect.runPromise(program).then(console.log)
+```
+
+### Bun
+
+```typescript
+import { SqliteClient } from "@effect/sql-sqlite-bun"
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const SqliteLive = SqliteClient.layer({
+  filename: "./mydb.db"
+})
+
+// Same API as Node.js version
+const program = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const users = yield* sql`SELECT * FROM users`
+  return users
+}).pipe(
+  Effect.provide(SqliteLive)
+)
+```
+
+### WebAssembly (Browser)
+
+```typescript
+import { SqliteClient } from "@effect/sql-sqlite-wasm"
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const SqliteLive = SqliteClient.layer({
+  filename: "mydb.db" // Stored in browser memory or IndexedDB
+})
+
+const program = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const users = yield* sql`SELECT * FROM users`
+  return users
+}).pipe(
+  Effect.provide(SqliteLive)
+)
+
+Effect.runPromise(program).then(console.log)
+```
+
+## Configuration
+
+### Node.js Options
+
+```typescript
+import { SqliteClient } from "@effect/sql-sqlite-node"
+
+const SqliteLive = SqliteClient.layer({
+  filename: "./mydb.db",
+  
+  // Use in-memory database
+  // filename: ":memory:",
+  
+  // Read-only mode
+  readonly: false,
+  
+  // Create if doesn't exist
+  fileMustExist: false,
+  
+  // Performance options
+  timeout: 5000,
+  verbose: console.log, // Log all SQL
+  
+  // Name transformation
+  transformResultNames: (str) => str,
+  transformQueryNames: (str) => str
+})
+```
+
+### Bun Options
+
+```typescript
+import { SqliteClient } from "@effect/sql-sqlite-bun"
+
+const SqliteLive = SqliteClient.layer({
+  filename: "./mydb.db",
+  
+  // Bun-specific options
+  create: true,
+  readwrite: true,
+  
+  // Name transformation
+  transformResultNames: (str) => str,
+  transformQueryNames: (str) => str
+})
+```
+
+### WASM Options
+
+```typescript
+import { SqliteClient } from "@effect/sql-sqlite-wasm"
+
+const SqliteLive = SqliteClient.layer({
+  filename: "mydb.db",
+  
+  // WASM-specific options
+  // Database persisted to IndexedDB by default
+  
+  transformResultNames: (str) => str,
+  transformQueryNames: (str) => str
+})
+```
+
+## Basic Operations
+
+### Creating Tables
+
+```typescript
+const createSchema = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `
+  
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS idx_email ON users(email)
+  `
+})
+```
+
+### Inserting Data
+
+```typescript
+const insertUser = (name: string, email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      INSERT INTO users (name, email)
+      VALUES (${name}, ${email})
+    `
+    return result.lastInsertRowid
+  })
+
+const insertMany = (users: Array<{ name: string; email: string }>) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`INSERT INTO users ${sql.insert(users)}`
+  })
+```
+
+### Querying Data
+
+```typescript
+const getAllUsers = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`SELECT * FROM users`
+})
+
+const getUserById = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const users = yield* sql`SELECT * FROM users WHERE id = ${id}`
+    return users[0]
+  })
+
+const searchUsers = (query: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM users
+      WHERE name LIKE ${'%' + query + '%'}
+      ORDER BY name
+    `
+  })
+```
+
+### Updating and Deleting
+
+```typescript
+const updateUser = (id: number, name: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      UPDATE users 
+      SET name = ${name}
+      WHERE id = ${id}
+    `
+    return result.changes
+  })
+
+const deleteUser = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`DELETE FROM users WHERE id = ${id}`
+    return result.changes
+  })
+```
+
+## Transactions
+
+```typescript
+const transferFunds = (from: number, to: number, amount: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    
+    yield* sql`
+      UPDATE accounts 
+      SET balance = balance - ${amount} 
+      WHERE id = ${from}
+    `
+    
+    yield* sql`
+      UPDATE accounts 
+      SET balance = balance + ${amount} 
+      WHERE id = ${to}
+    `
+  }).pipe(
+    sql.withTransaction
+  )
+```
+
+## SQLite-Specific Features
+
+### JSON Support (SQLite 3.38+)
+
+```typescript
+const insertDocument = (data: unknown) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      INSERT INTO documents (data)
+      VALUES (${JSON.stringify(data)})
+    `
+  })
+
+const queryJson = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT * FROM documents
+    WHERE json_extract(data, '$.name') = 'John'
+  `
+})
+```
+
+### Full-Text Search
+
+```typescript
+// Create FTS5 table
+const createFts = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`
+    CREATE VIRTUAL TABLE articles_fts 
+    USING fts5(title, content)
+  `
+})
+
+// Search
+const searchArticles = (query: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM articles_fts
+      WHERE articles_fts MATCH ${query}
+      ORDER BY rank
+    `
+  })
+```
+
+### UPSERT (SQLite 3.24+)
+
+```typescript
+const upsertUser = (id: number, name: string, email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      INSERT INTO users (id, name, email)
+      VALUES (${id}, ${name}, ${email})
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        email = excluded.email
+    `
+  })
+```
+
+### Window Functions
+
+```typescript
+const getUserRankings = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT 
+      name,
+      score,
+      RANK() OVER (ORDER BY score DESC) as rank
+    FROM users
+    ORDER BY score DESC
+  `
+})
+```
+
+## Migrations
+
+```typescript
+import { SqliteMigrator } from "@effect/sql-sqlite-node"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+
+const MigratorLive = SqliteMigrator.layer({
+  loader: SqliteMigrator.fromFileSystem("./migrations"),
+  schemaDirectory: "sql/migrations"
+})
+
+const migrate = Effect.gen(function* () {
+  const migrator = yield* SqliteMigrator
+  yield* migrator.run()
+}).pipe(
+  Effect.provide(Layer.merge(SqliteLive, MigratorLive))
+)
+```
+
+## In-Memory Database
+
+Useful for testing:
+
+```typescript
+const TestDb = SqliteClient.layer({
+  filename: ":memory:"
+})
+
+const testProgram = Effect.gen(function* () {
+  // Create schema
+  yield* createSchema
+  
+  // Run tests
+  yield* insertUser("Alice", "alice@example.com")
+  const users = yield* getAllUsers
+  
+  // Assert results...
+}).pipe(
+  Effect.provide(TestDb)
+)
+```
+
+## Performance Optimization
+
+### Pragma Settings
+
+```typescript
+const optimizeDb = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  // Enable WAL mode for better concurrency
+  yield* sql`PRAGMA journal_mode = WAL`
+  
+  // Increase cache size (in pages)
+  yield* sql`PRAGMA cache_size = -64000` // 64MB
+  
+  // Use memory for temp tables
+  yield* sql`PRAGMA temp_store = MEMORY`
+  
+  // Synchronous mode for performance
+  yield* sql`PRAGMA synchronous = NORMAL`
+})
+```
+
+### Batch Inserts
+
+```typescript
+const batchInsert = (users: Array<{ name: string; email: string }>) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    
+    // Much faster than individual inserts
+    yield* sql`INSERT INTO users ${sql.insert(users)}`
+  }).pipe(
+    sql.withTransaction // Use transaction for maximum speed
+  )
+```
+
+## Error Handling
+
+```typescript
+import { SqlError } from "effect/unstable/sql/SqlError"
+import * as Effect from "effect/Effect"
+
+const safeInsert = (name: string, email: string) =>
+  insertUser(name, email).pipe(
+    Effect.catchTag("SqlError", (error) => {
+      if (error.message.includes("UNIQUE constraint failed")) {
+        return Effect.fail({ _tag: "UserExists" as const })
+      }
+      return Effect.fail({ _tag: "DatabaseError" as const, error })
+    })
+  )
+```
+
+## Choosing a SQLite Package
+
+| Package | Use Case | Performance | Dependencies |
+|---------|----------|-------------|-------------|
+| `sql-sqlite-node` | Node.js apps | Fastest | Requires native build |
+| `sql-sqlite-bun` | Bun apps | Very fast | None (built-in) |
+| `sql-sqlite-wasm` | Browser/Edge | Good | Pure JavaScript |
+
+## Best Practices
+
+1. **Use WAL mode**: Better concurrency than default journal mode
+2. **Batch operations**: Use transactions for bulk inserts/updates
+3. **Index strategically**: Add indexes for frequently queried columns
+4. **Analyze queries**: Use `EXPLAIN QUERY PLAN` to optimize
+5. **Vacuum regularly**: Reclaim unused space with `VACUUM`
+6. **Limit result sets**: Use `LIMIT` for large queries
+
+## Requirements
+
+- **Node.js**: Node.js 18+, better-sqlite3 compatible
+- **Bun**: Bun 1.0+
+- **WASM**: Modern browser with WebAssembly support
+- **Effect**: 4.0.0 or higher
+
+## Next Steps
+
+- [SQL Overview →](/sql/overview)
+- [PostgreSQL →](/sql/postgres)
+- [MySQL →](/sql/mysql)

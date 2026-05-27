@@ -1,0 +1,294 @@
+---
+title: Quick start
+description: Build your first Effect program in minutes
+---
+
+# Quick start
+
+This guide will walk you through creating your first Effect program, showing you the core patterns you'll use every day.
+
+## Your first Effect program
+
+Effect programs are written using `Effect.gen`, which provides a generator-based syntax similar to async/await:
+
+```typescript
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  yield* Effect.log("Starting the file processing...")
+  yield* Effect.log("Reading file...")
+  
+  // Perform effectful operations
+  const result = yield* Effect.succeed(42)
+  
+  yield* Effect.log(`Result: ${result}`)
+  return result
+})
+
+// Run the effect
+Effect.runPromise(program).then(console.log)
+```
+
+<Tip>
+  Use `yield*` to unwrap Effect values, similar to `await` for Promises. The `*` is required because `Effect.gen` uses generator functions.
+</Tip>
+
+## Creating effects from common sources
+
+Effect provides constructors for wrapping different kinds of operations:
+
+<Steps>
+  <Step title="From plain values">
+    Use `Effect.succeed` for values you already have:
+    
+    ```typescript
+    import { Effect } from "effect"
+    
+    const config = Effect.succeed({ env: "prod", retries: 3 })
+    ```
+  </Step>
+  
+  <Step title="From synchronous code">
+    Use `Effect.sync` for side effects that don't throw:
+    
+    ```typescript
+    const timestamp = Effect.sync(() => Date.now())
+    ```
+    
+    Use `Effect.try` for code that might throw:
+    
+    ```typescript
+    import { Schema } from "effect"
+    
+    class InvalidPayload extends Schema.TaggedErrorClass<InvalidPayload>()("InvalidPayload", {
+      input: Schema.String,
+      cause: Schema.Defect
+    }) {}
+    
+    const parsePayload = (input: string) =>
+      Effect.try({
+        try: () => JSON.parse(input),
+        catch: (cause) => new InvalidPayload({ input, cause })
+      })
+    ```
+  </Step>
+  
+  <Step title="From Promises">
+    Use `Effect.tryPromise` for async operations:
+    
+    ```typescript
+    import { Effect, Schema } from "effect"
+    
+    class UserLookupError extends Schema.TaggedErrorClass<UserLookupError>()("UserLookupError", {
+      userId: Schema.Number,
+      cause: Schema.Defect
+    }) {}
+    
+    const fetchUser = (userId: number) =>
+      Effect.tryPromise({
+        async try() {
+          const response = await fetch(`/api/users/${userId}`)
+          if (!response.ok) {
+            throw new Error(`Missing user ${userId}`)
+          }
+          return response.json()
+        },
+        catch: (cause) => new UserLookupError({ userId, cause })
+      })
+    ```
+  </Step>
+  
+  <Step title="From callbacks">
+    Use `Effect.callback` for callback-based APIs:
+    
+    ```typescript
+    const delayed = Effect.callback<number>((resume) => {
+      const timeoutId = setTimeout(() => {
+        resume(Effect.succeed(200))
+      }, 1000)
+      
+      // Return cleanup function
+      return Effect.sync(() => clearTimeout(timeoutId))
+    })
+    ```
+  </Step>
+</Steps>
+
+## Error handling
+
+Define custom errors using `Schema.TaggedErrorClass` and handle them with type-safe error recovery:
+
+```typescript
+import { Effect, Schema } from "effect"
+
+// Define custom errors
+class ParseError extends Schema.TaggedErrorClass<ParseError>()("ParseError", {
+  input: Schema.String,
+  message: Schema.String
+}) {}
+
+class ReservedPortError extends Schema.TaggedErrorClass<ReservedPortError>()("ReservedPortError", {
+  port: Schema.Number
+}) {}
+
+declare const loadPort: (input: string) => Effect.Effect<number, ParseError | ReservedPortError>
+
+// Handle errors by tag
+const withFallback = loadPort("80").pipe(
+  Effect.catchTag("ReservedPortError", (_) => Effect.succeed(3000)),
+  Effect.catchTag("ParseError", (_) => Effect.succeed(3000))
+)
+
+// Or handle multiple errors at once
+const recovered = loadPort("invalid").pipe(
+  Effect.catchTags({
+    ParseError: (error) => Effect.succeed(3000),
+    ReservedPortError: (error) => Effect.succeed(3000)
+  })
+)
+```
+
+<Note>
+  Error types are part of the Effect signature: `Effect.Effect<Success, Error, Requirements>`. This makes errors visible and forces you to handle them.
+</Note>
+
+## Building services
+
+Services are the recommended way to structure Effect code. They provide dependency injection and make testing easier:
+
+```typescript
+import { Effect, Layer, Schema, ServiceMap } from "effect"
+
+// Define a service
+export class Database extends ServiceMap.Service<Database, {
+  query(sql: string): Effect.Effect<Array<unknown>, DatabaseError>
+}>()("myapp/db/Database") {
+  // Provide implementation via Layer
+  static readonly layer = Layer.effect(
+    Database,
+    Effect.gen(function*() {
+      const query = Effect.fn("Database.query")(function*(sql: string) {
+        yield* Effect.log("Executing SQL query:", sql)
+        return [{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }]
+      })
+      
+      return Database.of({ query })
+    })
+  )
+}
+
+export class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("DatabaseError", {
+  cause: Schema.Defect
+}) {}
+
+// Use the service
+const program = Effect.gen(function*() {
+  const db = yield* Database
+  const results = yield* db.query("SELECT * FROM users")
+  yield* Effect.log("Results:", results)
+  return results
+})
+
+// Provide the service when running
+const runnable = program.pipe(Effect.provide(Database.layer))
+```
+
+## Running Effect programs
+
+For simple scripts and examples, use `Effect.runPromise`:
+
+```typescript
+Effect.runPromise(program)
+  .then(console.log)
+  .catch(console.error)
+```
+
+For long-running applications, use `NodeRuntime.runMain` or `BunRuntime.runMain`:
+
+```typescript
+import { NodeRuntime } from "@effect/platform-node"
+import { Effect, Layer } from "effect"
+
+const Worker = Layer.effectDiscard(Effect.gen(function*() {
+  yield* Effect.logInfo("Starting worker...")
+  yield* Effect.forkScoped(Effect.gen(function*() {
+    while (true) {
+      yield* Effect.logInfo("Working...")
+      yield* Effect.sleep("1 second")
+    }
+  }))
+}))
+
+const program = Layer.launch(Worker)
+
+// Handles SIGINT/SIGTERM gracefully
+NodeRuntime.runMain(program)
+```
+
+<Tip>
+  `NodeRuntime.runMain` automatically handles process signals and interrupts running fibers for graceful shutdown.
+</Tip>
+
+## Complete example
+
+Here's a complete program that ties everything together:
+
+```typescript
+import { Effect, Schema } from "effect"
+
+// Define errors
+class FileProcessingError extends Schema.TaggedErrorClass<FileProcessingError>()("FileProcessingError", {
+  message: Schema.String
+}) {}
+
+// Create the program
+const program = Effect.gen(function*() {
+  yield* Effect.log("Starting the file processing...")
+  
+  // Simulate file reading
+  const content = yield* Effect.tryPromise({
+    async try() {
+      return "file contents"
+    },
+    catch: (cause) => new FileProcessingError({ message: "Failed to read file" })
+  })
+  
+  yield* Effect.log(`Read ${content.length} characters`)
+  
+  return content
+}).pipe(
+  Effect.catchTag("FileProcessingError", (error) => {
+    return Effect.gen(function*() {
+      yield* Effect.logError(`An error occurred: ${error.message}`)
+      return "" // fallback value
+    })
+  })
+)
+
+// Run the program
+Effect.runPromise(program).then(result => {
+  console.log("Final result:", result)
+})
+```
+
+## Next steps
+
+You now know the basics of Effect! Continue learning:
+
+<CardGroup cols={2}>
+  <Card title="Core concepts" icon="book" href="/core-concepts">
+    Deep dive into Effects, Layers, and Services
+  </Card>
+  
+  <Card title="Error handling" icon="shield-check" href="/core-concepts/error-handling">
+    Master typed error handling patterns
+  </Card>
+  
+  <Card title="Services and layers" icon="cubes" href="/core-concepts/services">
+    Learn dependency injection with Effect
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/reference/api-reference">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,388 @@
+---
+title: "Schema v4 Migration"
+description: "Schema validation and transformation changes in Effect v4"
+---
+
+Schema v4 is a complete redesign of the Schema module with a focus on explicitness, composability, and tree-shaking. While the core concepts of decoding and encoding remain the same, the API surface has changed significantly.
+
+## Design Philosophy
+
+Schema v4 adopts three core principles:
+
+- **Lightweight by default** — Only import the features you need, keeping your bundle small
+- **Familiar API** — Naming conventions and patterns are consistent with popular validation libraries
+- **Explicit** — You choose which features to use. Nothing is included implicitly
+
+## Key Changes
+
+### Elementary Schemas
+
+Built-in schemas for primitives remain largely the same:
+
+```ts
+import { Schema } from "effect"
+
+// Primitives (unchanged)
+Schema.String
+Schema.Number
+Schema.BigInt
+Schema.Boolean
+Schema.Symbol
+Schema.Undefined
+Schema.Null
+```
+
+### Validation Rules with .check()
+
+Validation rules are now applied with `.check(...)` instead of separate schema constructors:
+
+<CodeGroup>
+```ts v3
+import { Schema } from "effect"
+
+const MinLength5 = Schema.String.pipe(Schema.minLength(5))
+const Email = Schema.String.pipe(Schema.pattern(/^.+@.+$/))
+```
+
+```ts v4
+import { Schema } from "effect"
+
+const MinLength5 = Schema.String.check(Schema.isMinLength(5))
+const Email = Schema.String.check(Schema.isPattern(/^.+@.+$/))
+```
+</CodeGroup>
+
+### String Validation Rules
+
+```ts
+import { Schema } from "effect"
+
+Schema.String.check(Schema.isMaxLength(5))
+Schema.String.check(Schema.isMinLength(5))
+Schema.String.check(Schema.isLengthBetween(5, 10))
+Schema.String.check(Schema.isPattern(/^[a-z]+$/))
+Schema.String.check(Schema.isStartsWith("aaa"))
+Schema.String.check(Schema.isEndsWith("zzz"))
+Schema.String.check(Schema.isIncludes("---"))
+Schema.String.check(Schema.isUppercased())
+Schema.String.check(Schema.isLowercased())
+```
+
+### Number Validation Rules
+
+```ts
+import { Schema } from "effect"
+
+Schema.Number.check(Schema.isBetween({ minimum: 5, maximum: 10 }))
+Schema.Number.check(Schema.isGreaterThan(5))
+Schema.Number.check(Schema.isGreaterThanOrEqualTo(5))
+Schema.Number.check(Schema.isLessThan(5))
+Schema.Number.check(Schema.isLessThanOrEqualTo(5))
+Schema.Number.check(Schema.isMultipleOf(5))
+Schema.Number.check(Schema.isInt())
+Schema.Number.check(Schema.isInt32())
+```
+
+### Struct Schemas
+
+Struct schemas use `Schema.Struct` with field definitions:
+
+```ts
+import { Schema } from "effect"
+
+const User = Schema.Struct({
+  name: Schema.String,
+  email: Schema.String,
+  age: Schema.Number
+})
+```
+
+### Optional Fields
+
+Optional fields are defined with `Schema.optionalKey` or `Schema.optional`:
+
+```ts
+import { Schema } from "effect"
+
+const User = Schema.Struct({
+  name: Schema.String,
+  // Exact optional (key may be absent)
+  email: Schema.optionalKey(Schema.String),
+  // Optional with undefined (key may be absent or undefined)
+  phone: Schema.optional(Schema.String)
+})
+
+// With "exactOptionalPropertyTypes": true
+type User = {
+  readonly name: string
+  readonly email?: string
+  readonly phone?: string | undefined
+}
+```
+
+### Mutable Fields
+
+Fields are readonly by default. Use `Schema.mutableKey` for mutable properties:
+
+```ts
+import { Schema } from "effect"
+
+const User = Schema.Struct({
+  name: Schema.String,
+  count: Schema.mutableKey(Schema.Number)
+})
+
+type User = {
+  readonly name: string
+  count: number
+}
+```
+
+### Decoding Defaults
+
+Provide default values during decoding with `Schema.withDecodingDefault`:
+
+```ts
+import { Schema } from "effect"
+
+const Config = Schema.Struct({
+  port: Schema.Number.pipe(Schema.withDecodingDefault(() => 8080))
+})
+
+Schema.decodeUnknownSync(Config)({}) // { port: 8080 }
+Schema.decodeUnknownSync(Config)({ port: undefined }) // { port: 8080 }
+Schema.decodeUnknownSync(Config)({ port: 3000 }) // { port: 3000 }
+```
+
+### Tagged Structs
+
+Tagged structs include a `_tag` field for discriminated unions:
+
+```ts
+import { Schema } from "effect"
+
+const Success = Schema.TaggedStruct("Success", {
+  value: Schema.String
+})
+
+const Failure = Schema.TaggedStruct("Failure", {
+  error: Schema.String
+})
+
+const Result = Schema.Union([Success, Failure])
+```
+
+### Tagged Unions
+
+Define tagged unions with a single call:
+
+```ts
+import { Schema } from "effect"
+
+const Result = Schema.TaggedUnion({
+  Success: { value: Schema.String },
+  Failure: { error: Schema.String }
+})
+
+type Result =
+  | { readonly _tag: "Success"; readonly value: string }
+  | { readonly _tag: "Failure"; readonly error: string }
+```
+
+### Arrays and Tuples
+
+```ts
+import { Schema } from "effect"
+
+// Arrays
+const StringArray = Schema.Array(Schema.String)
+
+// Tuples
+const Pair = Schema.Tuple([Schema.String, Schema.Number])
+
+// Tuples with rest elements
+const TupleWithRest = Schema.TupleWithRest(
+  Schema.Tuple([Schema.String, Schema.Number]),
+  [Schema.Boolean]
+)
+```
+
+### Records
+
+Records define dynamic key-value mappings:
+
+```ts
+import { Schema } from "effect"
+
+// String keys, number values
+const StringToNumber = Schema.Record(Schema.String, Schema.Number)
+
+// Number keys
+const IntToString = Schema.Record(Schema.Int, Schema.String)
+```
+
+### Transformations
+
+Transformations convert values between types during decoding and encoding:
+
+```ts
+import { Schema, SchemaTransformation } from "effect"
+
+// Transform string to uppercase during decoding
+const Uppercase = Schema.String.decode(SchemaTransformation.toUpperCase())
+
+// Custom transformation
+const StringToNumber = Schema.String.pipe(
+  Schema.decodeTo(Schema.Number, {
+    decode: (s) => Effect.succeed(Number(s)),
+    encode: (n) => Effect.succeed(String(n))
+  })
+)
+```
+
+## Deriving Schemas
+
+### Struct Derivations
+
+```ts
+import { Schema, Struct } from "effect"
+
+const User = Schema.Struct({
+  name: Schema.String,
+  email: Schema.String,
+  age: Schema.Number
+})
+
+// Pick specific fields
+const NameOnly = User.mapFields(Struct.pick(["name"]))
+
+// Omit fields
+const WithoutAge = User.mapFields(Struct.omit(["age"]))
+
+// Add fields
+const WithRole = User.mapFields(
+  Struct.assign({ role: Schema.String })
+)
+
+// Make fields optional
+const OptionalEmail = User.mapFields(
+  Struct.evolve({
+    email: (field) => Schema.optionalKey(field)
+  })
+)
+```
+
+### Tuple Derivations
+
+```ts
+import { Schema, Tuple } from "effect"
+
+const Triple = Schema.Tuple([Schema.String, Schema.Number, Schema.Boolean])
+
+// Pick elements
+const FirstAndLast = Triple.mapElements(Tuple.pick([0, 2]))
+
+// Add elements
+const WithExtra = Triple.mapElements(
+  Tuple.appendElement(Schema.String)
+)
+```
+
+## Opaque Types and Classes
+
+Create distinct TypeScript types backed by schemas:
+
+```ts
+import { Schema } from "effect"
+
+class UserId extends Schema.Opaque<UserId>()(Schema.String) {}
+
+class User extends Schema.Opaque<User>()(
+  Schema.Struct({
+    id: UserId,
+    name: Schema.String
+  })
+) {}
+
+const userId = UserId.makeUnsafe("user-123")
+const user = User.makeUnsafe({ id: userId, name: "Alice" })
+```
+
+## Template Literals
+
+Define structured string patterns:
+
+```ts
+import { Schema } from "effect"
+
+const Email = Schema.TemplateLiteral([
+  Schema.String.check(Schema.isMinLength(1)),
+  "@",
+  Schema.String.check(Schema.isMaxLength(64))
+])
+
+type Email = `${string}@${string}`
+```
+
+## Validation and Parsing
+
+### Decoding
+
+```ts
+import { Schema } from "effect"
+
+const User = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Number
+})
+
+// Synchronous decoding (throws on error)
+const user = Schema.decodeUnknownSync(User)({ name: "Alice", age: 30 })
+
+// Effect-based decoding
+const program = Schema.decodeUnknown(User)({ name: "Alice", age: 30 })
+
+// Exit-based decoding (returns Exit)
+const exit = Schema.decodeUnknownExit(User)({ name: "Alice", age: 30 })
+```
+
+### Encoding
+
+```ts
+import { Schema } from "effect"
+
+const User = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Number
+})
+
+const user = { name: "Alice", age: 30 }
+
+// Synchronous encoding
+const encoded = Schema.encodeSync(User)(user)
+
+// Effect-based encoding
+const program = Schema.encode(User)(user)
+```
+
+## Migration Strategy
+
+When migrating Schema code from v3 to v4:
+
+1. **Replace constraint constructors with `.check()`** — Convert `Schema.minLength(5)` to `Schema.String.check(Schema.isMinLength(5))`
+2. **Update field definitions** — Use `Schema.optionalKey` and `Schema.mutableKey` for optional/mutable fields
+3. **Explicit transformations** — Use `SchemaTransformation` module for type conversions
+4. **Tagged unions** — Consider `Schema.TaggedUnion` for discriminated unions
+5. **Review error messages** — v4 provides clearer validation errors
+
+## Summary
+
+Schema v4 represents a significant evolution in Effect's validation and transformation capabilities:
+
+- More explicit API with `.check()` for validation rules
+- Better tree-shaking and bundle size optimization
+- Clearer distinction between optional and mutable fields
+- Enhanced support for tagged unions and opaque types
+- More predictable transformation behavior
+
+While the migration requires updating existing schema definitions, the result is more maintainable and performant code.

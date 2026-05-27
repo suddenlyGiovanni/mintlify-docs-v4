@@ -1,0 +1,379 @@
+---
+title: Schedule
+description: Schedules for retrying operations, repeating effects, and implementing timing strategies
+---
+
+The `Schedule` module provides utilities for creating and composing schedules that control retry logic, repetition patterns, and various timing strategies.
+
+## Overview
+
+A `Schedule<Output, Input, Error, Env>` is a function that:
+- Takes an input and returns a decision whether to continue or halt
+- Provides a delay duration before the next attempt
+- Can be combined, transformed, and composed with other schedules
+- Works seamlessly with Effect.retry and Effect.repeat
+
+## Creating Schedules
+
+### Basic Schedules
+
+```ts
+import { Schedule } from "effect"
+
+// Retry forever with no delay
+const forever = Schedule.forever
+
+// Retry a specific number of times
+const recurs = Schedule.recurs(3)
+
+// Fixed delay between retries
+const spaced = Schedule.spaced("1 second")
+
+// Exponential backoff
+const exponential = Schedule.exponential("100 millis", 2.0)
+```
+
+### Time-Based Schedules
+
+```ts
+import { Schedule } from "effect"
+
+// Linear delay (100ms, 200ms, 300ms, ...)
+const linear = Schedule.linear("100 millis")
+
+// Fibonacci delay
+const fibonacci = Schedule.fibonacci("10 millis")
+
+// Exponential with base delay
+const exponential = Schedule.exponential("100 millis")
+```
+
+## Using Schedules
+
+### With Effect.retry
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const retryPolicy = Schedule.exponential("100 millis").pipe(
+  Schedule.compose(Schedule.recurs(3))
+)
+
+const program = Effect.gen(function*() {
+  const result = yield* Effect.retry(
+    Effect.fail("Network error"),
+    retryPolicy
+  )
+  return result
+})
+```
+
+### With Effect.repeat
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const heartbeat = Effect.log("heartbeat").pipe(
+  Effect.repeat(Schedule.spaced("30 seconds"))
+)
+```
+
+## Composing Schedules
+
+### Intersection (Both)
+
+Continues while both schedules want to continue:
+
+```ts
+import { Schedule } from "effect"
+
+// Retry up to 5 times with 1 second spacing
+const schedule = Schedule.intersect(
+  Schedule.recurs(5),
+  Schedule.spaced("1 second")
+)
+
+// Or using pipe
+const schedule2 = Schedule.recurs(5).pipe(
+  Schedule.intersect(Schedule.spaced("1 second"))
+)
+```
+
+### Union (Either)
+
+Continues while either schedule wants to continue:
+
+```ts
+import { Schedule } from "effect"
+
+// Continue for 1 minute OR 10 attempts, whichever is longer
+const schedule = Schedule.union(
+  Schedule.elapsed.pipe(Schedule.whileOutput((d) => d < "1 minute")),
+  Schedule.recurs(10)
+)
+```
+
+### Compose (Sequential)
+
+Runs first schedule, then second schedule:
+
+```ts
+import { Schedule } from "effect"
+
+// Fast retries first, then slow retries
+const schedule = Schedule.compose(
+  Schedule.recurs(3).pipe(Schedule.addDelay(() => "100 millis")),
+  Schedule.recurs(5).pipe(Schedule.addDelay(() => "1 second"))
+)
+```
+
+## Transforming Schedules
+
+### Map Output
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const schedule = Schedule.recurs(5).pipe(
+  Schedule.map((n) => Effect.succeed(`Attempt ${n}`))
+)
+```
+
+### Add Delay
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const schedule = Schedule.recurs(3).pipe(
+  Schedule.addDelay((n) => Effect.succeed(`${n * 100} millis`))
+)
+```
+
+### While/Until Conditions
+
+```ts
+import { Schedule } from "effect"
+
+// Continue while condition is true
+const whileSchedule = Schedule.recurs(10).pipe(
+  Schedule.whileOutput((n) => n < 5)
+)
+
+// Continue until condition is true
+const untilSchedule = Schedule.recurs(10).pipe(
+  Schedule.untilOutput((n) => n >= 5)
+)
+```
+
+## Common Patterns
+
+### Exponential Backoff with Cap
+
+```ts
+import { Schedule } from "effect"
+
+const retryPolicy = Schedule.exponential("100 millis", 2.0).pipe(
+  Schedule.intersect(
+    Schedule.spaced("10 seconds") // Maximum delay
+  ),
+  Schedule.compose(Schedule.recurs(5)) // Maximum attempts
+)
+```
+
+### Retry with Jitter
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const retryPolicy = Schedule.exponential("100 millis").pipe(
+  Schedule.jittered, // Adds randomness to prevent thundering herd
+  Schedule.compose(Schedule.recurs(3))
+)
+```
+
+### Conditional Retry
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const retryPolicy = Schedule.exponential("100 millis").pipe(
+  Schedule.whileInput<Error>((error) =>
+    error.message.includes("temporary")
+  ),
+  Schedule.compose(Schedule.recurs(5))
+)
+
+const program = Effect.gen(function*() {
+  const result = yield* Effect.retry(
+    riskyOperation,
+    retryPolicy
+  )
+  return result
+})
+```
+
+## Polling Pattern
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const pollSchedule = Schedule.spaced("5 seconds").pipe(
+  Schedule.compose(Schedule.recurs(10))
+)
+
+const checkStatus = Effect.gen(function*() {
+  const status = yield* fetchStatus()
+  
+  if (status === "complete") {
+    return status
+  }
+  
+  return yield* Effect.fail("not ready")
+})
+
+const program = Effect.retry(checkStatus, pollSchedule)
+```
+
+## Schedule Metadata
+
+```ts
+import { Console, Effect, Schedule } from "effect"
+
+const schedule = Schedule.spaced("1 second").pipe(
+  Schedule.collectWhile((metadata) =>
+    Effect.gen(function*() {
+      yield* Console.log(`Attempt: ${metadata.attempt}`) 
+      yield* Console.log(`Elapsed: ${metadata.elapsed}ms`)
+      return metadata.attempt <= 5
+    })
+  )
+)
+```
+
+## Advanced Schedules
+
+### Custom Schedule
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const customSchedule = Schedule.unfold(0, (n) =>
+  Effect.succeed(n + 1)
+).pipe(
+  Schedule.addDelay((n) => Effect.succeed(`${n * 100} millis`)),
+  Schedule.whileOutput((n) => n < 10)
+)
+```
+
+### Time-of-Day Schedule
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const businessHours = Schedule.spaced("1 hour").pipe(
+  Schedule.collectWhile((metadata) =>
+    Effect.sync(() => {
+      const hour = new Date().getHours()
+      return hour >= 9 && hour < 17 // 9 AM to 5 PM
+    })
+  )
+)
+```
+
+### Circuit Breaker Pattern
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const circuitBreaker = Schedule.exponential("1 second").pipe(
+  Schedule.whileOutput((delay) => delay < "1 minute"),
+  Schedule.onComplete(() =>
+    Effect.log("Circuit breaker opened")
+  )
+)
+```
+
+## Monitoring Schedules
+
+### Tap on Each Iteration
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const schedule = Schedule.recurs(5).pipe(
+  Schedule.tapOutput((n) =>
+    Effect.log(`Retry attempt: ${n}`)
+  )
+)
+```
+
+### Log on Completion
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const schedule = Schedule.recurs(3).pipe(
+  Schedule.onComplete(() =>
+    Effect.log("Schedule completed")
+  )
+)
+```
+
+## Best Practices
+
+1. **Combine schedules**: Use intersect/union to create sophisticated retry logic
+2. **Add jitter**: Use jittered to prevent thundering herd problems
+3. **Cap maximum delays**: Prevent infinite backoff with maximum delay limits
+4. **Limit retry attempts**: Always set a maximum number of retries
+5. **Use conditional retries**: Only retry on recoverable errors
+6. **Monitor schedule execution**: Log attempts and delays for debugging
+
+## Common Use Cases
+
+### API Rate Limiting
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const rateLimited = Schedule.spaced("100 millis").pipe(
+  Schedule.compose(Schedule.recurs(10))
+)
+
+const apiCall = Effect.retry(
+  callAPI(),
+  rateLimited
+)
+```
+
+### Database Connection Retry
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const dbRetry = Schedule.exponential("1 second").pipe(
+  Schedule.intersect(Schedule.spaced("30 seconds")), // Max 30s delay
+  Schedule.compose(Schedule.recurs(5))
+)
+
+const connect = Effect.retry(
+  connectToDatabase(),
+  dbRetry
+)
+```
+
+### Health Check Polling
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const healthCheck = Effect.repeat(
+  checkServiceHealth(),
+  Schedule.spaced("30 seconds")
+)
+```
+
+## Next Steps
+
+- Learn about [Effect](/core-modules/effect) for error handling
+- Explore [Stream](/core-modules/stream) for processing sequences
+- Understand retry strategies in production applications

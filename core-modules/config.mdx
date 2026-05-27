@@ -1,0 +1,361 @@
+---
+title: Config
+description: Declarative, schema-driven configuration loading for Effect applications
+---
+
+The `Config` module provides a declarative, type-safe way to load and validate configuration from various sources. It integrates seamlessly with the Schema module for runtime validation.
+
+## Overview
+
+A `Config<T>` describes how to read and validate a value of type `T` from a `ConfigProvider`. Configs can be composed, transformed, and used directly as Effects.
+
+### Mental Model
+
+- **Config\<T\>**: A recipe for extracting a typed value from a ConfigProvider
+- **ConfigProvider**: The backing data source (environment variables, JSON files, etc.)
+- **ConfigError**: Wraps either a SourceError (I/O failure) or SchemaError (validation failure)
+- **Yieldable**: Every Config can be yielded inside Effect.gen
+
+## Reading Configuration
+
+### Basic Types
+
+```ts
+import { Config } from "effect"
+
+// Read a string from environment
+const host = Config.string("HOST")
+
+// Read a number
+const port = Config.number("PORT")
+
+// Read an integer
+const maxConnections = Config.int("MAX_CONNECTIONS")
+
+// Read a boolean
+const debugMode = Config.boolean("DEBUG")
+```
+
+### Using Configs in Effects
+
+```ts
+import { Config, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const host = yield* Config.string("HOST")
+  const port = yield* Config.int("PORT")
+  
+  yield* Effect.log(`Server will run on ${host}:${port}`)
+  
+  return { host, port }
+})
+```
+
+### Structured Configuration
+
+```ts
+import { Config, Schema } from "effect"
+
+// Define a config schema
+const ServerConfig = Config.schema(
+  Schema.Struct({
+    host: Schema.String,
+    port: Schema.Int,
+    ssl: Schema.Boolean
+  }),
+  "server" // prefix for config keys
+)
+
+// Use in an Effect
+const program = Effect.gen(function*() {
+  const config = yield* ServerConfig
+  
+  console.log(config)
+  // { host: "localhost", port: 8080, ssl: false }
+})
+```
+
+## Default Values and Optional Configs
+
+### With Default
+
+```ts
+import { Config } from "effect"
+
+const port = Config.int("PORT").pipe(
+  Config.withDefault(3000)
+)
+
+const logLevel = Config.string("LOG_LEVEL").pipe(
+  Config.withDefault("info")
+)
+```
+
+### Optional Configuration
+
+```ts
+import { Config, Effect, Option } from "effect"
+
+const apiKey = Config.option(Config.string("API_KEY"))
+
+const program = Effect.gen(function*() {
+  const key = yield* apiKey
+  
+  if (Option.isSome(key)) {
+    yield* Effect.log("API key is configured")
+  } else {
+    yield* Effect.log("No API key provided")
+  }
+})
+```
+
+## Specialized Config Types
+
+### Duration
+
+```ts
+import { Config } from "effect"
+
+const timeout = Config.duration("REQUEST_TIMEOUT")
+// Accepts: "30s", "5m", "1h", etc.
+```
+
+### URL
+
+```ts
+import { Config } from "effect"
+
+const apiUrl = Config.url("API_URL")
+// Validates URL format
+```
+
+### Redacted (for secrets)
+
+```ts
+import { Config } from "effect"
+
+const apiSecret = Config.redacted("API_SECRET")
+// Value is redacted in logs and error messages
+```
+
+### Date
+
+```ts
+import { Config } from "effect"
+
+const deploymentDate = Config.date("DEPLOYMENT_DATE")
+// Parses ISO date strings
+```
+
+## Transforming Configs
+
+### Map
+
+```ts
+import { Config } from "effect"
+
+const upperCaseHost = Config.string("HOST").pipe(
+  Config.map((s) => s.toUpperCase())
+)
+```
+
+### MapOrFail
+
+```ts
+import { Config, Effect } from "effect"
+
+const validatedPort = Config.int("PORT").pipe(
+  Config.mapOrFail((port) =>
+    port >= 1024 && port <= 65535
+      ? Effect.succeed(port)
+      : Effect.fail(
+          new Config.ConfigError(
+            new ConfigProvider.SourceError("Port must be between 1024 and 65535")
+          )
+        )
+  )
+)
+```
+
+## Combining Configs
+
+### Using Config.all
+
+```ts
+import { Config } from "effect"
+
+const appConfig = Config.all({
+  host: Config.string("HOST"),
+  port: Config.int("PORT"),
+  database: Config.string("DATABASE_URL")
+})
+// Returns Config<{ host: string, port: number, database: string }>
+```
+
+### Sequential Composition
+
+```ts
+import { Config, Effect } from "effect"
+
+const connectionString = Effect.gen(function*() {
+  const host = yield* Config.string("DB_HOST")
+  const port = yield* Config.int("DB_PORT")
+  const database = yield* Config.string("DB_NAME")
+  
+  return `postgresql://${host}:${port}/${database}`
+})
+```
+
+## Error Handling
+
+### OrElse
+
+```ts
+import { Config } from "effect"
+
+const config = Config.string("PRIMARY_HOST").pipe(
+  Config.orElse(() => Config.string("FALLBACK_HOST"))
+)
+```
+
+### Catching Errors
+
+```ts
+import { Config, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const port = yield* Config.int("PORT")
+  return port
+}).pipe(
+  Effect.catchTag("ConfigError", (error) =>
+    Effect.succeed(3000)
+  )
+)
+```
+
+## Config Providers
+
+### From Environment Variables
+
+```ts
+import { ConfigProvider, Effect } from "effect"
+
+const provider = ConfigProvider.fromEnv({
+  env: process.env
+})
+
+const program = Effect.gen(function*() {
+  const host = yield* Config.string("HOST")
+  return host
+}).pipe(
+  Effect.provide(ConfigProvider.layer(provider))
+)
+```
+
+### From JSON Object
+
+```ts
+import { ConfigProvider } from "effect"
+
+const provider = ConfigProvider.fromUnknown({
+  host: "localhost",
+  port: 8080,
+  database: {
+    url: "postgresql://localhost/mydb"
+  }
+})
+```
+
+### Nested Configuration
+
+```ts
+import { Config, ConfigProvider, Effect } from "effect"
+
+const databaseConfig = Config.schema(
+  Schema.Struct({
+    url: Schema.String,
+    poolSize: Schema.Int
+  }),
+  "database"
+)
+
+const provider = ConfigProvider.fromUnknown({
+  database_url: "postgresql://localhost/mydb",
+  database_poolSize: 10
+})
+```
+
+## Integration with Layers
+
+```ts
+import { Config, Effect, Layer, ServiceMap } from "effect"
+
+class DatabaseConfig extends ServiceMap.Service<DatabaseConfig, {
+  url: string
+  poolSize: number
+}>()("DatabaseConfig") {
+  static readonly layer = Layer.effect(
+    DatabaseConfig,
+    Effect.gen(function*() {
+      const url = yield* Config.string("DATABASE_URL")
+      const poolSize = yield* Config.int("DATABASE_POOL_SIZE").pipe(
+        Config.withDefault(10)
+      )
+      
+      return DatabaseConfig.of({ url, poolSize })
+    })
+  )
+}
+```
+
+## Best Practices
+
+1. **Validate at startup**: Load and validate all configuration at application startup
+2. **Use Schema for complex configs**: Leverage Schema.Struct for structured configuration
+3. **Provide defaults**: Use withDefault for non-critical configuration
+4. **Keep secrets redacted**: Use Config.redacted for sensitive values
+5. **Group related configs**: Use Config.all or Schema.Struct to group related settings
+6. **Use layers for config services**: Wrap configuration in layers for dependency injection
+
+## Common Patterns
+
+### Environment-Specific Configuration
+
+```ts
+import { Config, Effect } from "effect"
+
+const getConfig = Effect.gen(function*() {
+  const env = yield* Config.string("NODE_ENV").pipe(
+    Config.withDefault("development")
+  )
+  
+  if (env === "production") {
+    return yield* productionConfig
+  } else {
+    return yield* developmentConfig
+  }
+})
+```
+
+### Required vs Optional
+
+```ts
+import { Config } from "effect"
+
+// Required - will fail if missing
+const required = Config.string("REQUIRED_KEY")
+
+// Optional - returns Option
+const optional = Config.option(Config.string("OPTIONAL_KEY"))
+
+// Optional with default
+const withDefault = Config.string("KEY").pipe(
+  Config.withDefault("default-value")
+)
+```
+
+## Next Steps
+
+- Learn about [Schema](/core-modules/schema) for validation
+- Explore [Layer](/core-modules/layer) for dependency injection
+- Understand [Effect](/core-modules/effect) for error handling

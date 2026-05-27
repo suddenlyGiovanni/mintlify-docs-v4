@@ -1,0 +1,250 @@
+---
+title: "Socket"
+description: "Handle WebSocket and stream-based socket connections with Effect"
+---
+
+## Overview
+
+The `effect/unstable/socket` module provides tools for working with socket connections:
+
+- WebSocket client and server support
+- Stream-based communication
+- Automatic reconnection
+- Error handling with typed errors
+
+## WebSocket client
+
+Create a WebSocket connection:
+
+```typescript
+import { Effect, Stream } from "effect"
+import { Socket } from "effect/unstable/socket"
+
+const program = Effect.gen(function*() {
+  const socket = yield* Socket.makeWebSocket("wss://example.com/ws")
+  
+  yield* socket.run((data) => {
+    console.log("Received:", data)
+  })
+})
+```
+
+## Sending messages
+
+Send data through the socket:
+
+```typescript
+const program = Effect.scoped(
+  Effect.gen(function*() {
+    const socket = yield* Socket.makeWebSocket("wss://example.com/ws")
+    const write = yield* socket.writer
+    
+    // Send string
+    yield* write("Hello, server!")
+    
+    // Send binary
+    yield* write(new Uint8Array([1, 2, 3]))
+    
+    // Close connection
+    yield* write(new Socket.CloseEvent(1000, "Normal closure"))
+  })
+)
+```
+
+## Receiving messages
+
+Handle incoming messages:
+
+```typescript
+const socket = yield* Socket.makeWebSocket("wss://example.com/ws")
+
+yield* socket.run(
+  (data) => Effect.gen(function*() {
+    yield* Effect.log(`Received: ${data.length} bytes`)
+    yield* processMessage(data)
+  }),
+  {
+    onOpen: Effect.log("Connection opened")
+  }
+)
+```
+
+## Socket as a Channel
+
+Use sockets with Effect's Channel API:
+
+```typescript
+import { Channel, Stream } from "effect"
+import { Socket } from "effect/unstable/socket"
+
+const program = Effect.gen(function*() {
+  const socket = yield* Socket.makeWebSocket("wss://example.com/ws")
+  const channel = Socket.toChannel(socket)
+  
+  // Create bidirectional stream
+  const output = Stream.make("message1", "message2", "message3")
+  
+  const result = yield* output.pipe(
+    Stream.pipeThroughChannel(channel),
+    Stream.runCollect
+  )
+})
+```
+
+## String-based sockets
+
+Work with string messages:
+
+```typescript
+const socket = yield* Socket.makeWebSocket("wss://example.com/ws")
+const channel = Socket.toChannelString(socket, "utf-8")
+
+const messages = Stream.make("Hello", "World")
+
+const responses = yield* messages.pipe(
+  Stream.pipeThroughChannel(channel),
+  Stream.runCollect
+)
+```
+
+## Error handling
+
+Handle socket errors:
+
+```typescript
+import { Socket } from "effect/unstable/socket"
+
+const program = Effect.gen(function*() {
+  const socket = yield* Socket.makeWebSocket("wss://example.com/ws")
+  
+  yield* socket.run((data) => processMessage(data)).pipe(
+    Effect.catchTag("SocketReadError", (error) =>
+      Effect.log(`Read error: ${error.cause}`)
+    ),
+    Effect.catchTag("SocketWriteError", (error) =>
+      Effect.log(`Write error: ${error.cause}`)
+    ),
+    Effect.catchTag("SocketCloseError", (error) =>
+      Effect.log(`Connection closed: ${error.code}`)
+    )
+  )
+})
+```
+
+## Socket options
+
+Configure socket behavior:
+
+```typescript
+const socket = yield* Socket.makeWebSocket("wss://example.com/ws", {
+  // Custom protocols
+  protocols: ["v1.api.example.com"],
+  
+  // Connection timeout
+  openTimeout: "10 seconds",
+  
+  // Custom close code handling
+  closeCodeIsError: (code) => code !== 1000 && code !== 1001
+})
+```
+
+## WebSocket server
+
+Create a WebSocket server:
+
+```typescript
+import { HttpRouter, HttpServer } from "effect/unstable/http"
+import { Socket } from "effect/unstable/socket"
+
+const wsHandler = Effect.gen(function*() {
+  const socket = yield* Socket.Socket
+  
+  yield* socket.run((data) => {
+    // Echo back received data
+    return Effect.scoped(
+      Effect.gen(function*() {
+        const write = yield* socket.writer
+        yield* write(data)
+      })
+    )
+  })
+})
+
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/ws", wsHandler)
+)
+```
+
+## Transform streams
+
+Create sockets from transform streams:
+
+```typescript
+const transformStream: InputTransformStream = {
+  readable: new ReadableStream(),
+  writable: new WritableStream()
+}
+
+const socket = yield* Socket.fromTransformStream(
+  Effect.succeed(transformStream)
+)
+```
+
+## Complete example
+
+```typescript
+import { Effect, Stream, Console } from "effect"
+import { Socket } from "effect/unstable/socket"
+
+class ChatClient {
+  static send(message: string) {
+    return Effect.scoped(
+      Effect.gen(function*() {
+        const socket = yield* Socket.makeWebSocket("wss://chat.example.com/ws", {
+          openTimeout: "10 seconds"
+        })
+        
+        const write = yield* socket.writer
+        
+        // Send message
+        yield* write(message)
+        yield* Console.log(`Sent: ${message}`)
+        
+        // Listen for responses
+        yield* socket.run(
+          (data) => Console.log(`Received: ${new TextDecoder().decode(data)}`),
+          { onOpen: Console.log("Connected") }
+        )
+      })
+    ).pipe(
+      Effect.catchTag("SocketOpenError", (error) =>
+        Console.error(`Failed to connect: ${error.message}`)
+      ),
+      Effect.catchTag("SocketCloseError", (error) =>
+        Console.log(`Connection closed: ${error.code}`)
+      )
+    )
+  }
+}
+
+const program = ChatClient.send("Hello, chat!")
+```
+
+## Raw message handling
+
+Handle both string and binary messages:
+
+```typescript
+yield* socket.runRaw((data) => {
+  if (typeof data === "string") {
+    yield* Effect.log(`Text message: ${data}`)
+  } else {
+    yield* Effect.log(`Binary message: ${data.length} bytes`)
+  }
+})
+```
+
+## See also
+
+- [HTTP Server](/unstable/http-server) - Build WebSocket servers
+- [Workers](/unstable/workers) - Communicate with web workers

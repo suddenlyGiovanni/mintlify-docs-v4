@@ -1,0 +1,206 @@
+---
+title: Effect Basics
+description: Learn the fundamentals of Effect including Effect.gen, Effect.fn, and yielding effects
+---
+
+## What is an Effect?
+
+An `Effect` is a description of a program that may produce a value of type `A`, fail with an error of type `E`, or require services of type `R`. It's a lazy, composable way to model side effects and computations.
+
+The type signature is `Effect<A, E, R>` where:
+- `A` is the success type
+- `E` is the error type
+- `R` is the required services/context
+
+## Writing Effect Code with Effect.gen
+
+Prefer writing Effect code with `Effect.gen` for an imperative style similar to async/await. Use `yield*` to access the result of an effect.
+
+```ts
+import { Effect, Schema } from "effect"
+
+Effect.gen(function*() {
+  yield* Effect.log("Starting the file processing...")
+  yield* Effect.log("Reading file...")
+
+  // Always return when raising an error, to ensure typescript understands that
+  // the function will not continue executing.
+  return yield* new FileProcessingError({ message: "Failed to read the file" })
+}).pipe(
+  // Add additional functionality with .pipe
+  Effect.catch((error) => Effect.logError(`An error occurred: ${error}`))
+)
+
+// Use Schema.TaggedErrorClass to define a custom error
+export class FileProcessingError extends Schema.TaggedErrorClass<FileProcessingError>()("FileProcessingError", {
+  message: Schema.String
+}) {}
+```
+
+## Writing Effect Functions with Effect.fn
+
+When writing functions that return an Effect, use `Effect.fn` to use the generator syntax. **Avoid creating functions that return an Effect.gen**, use `Effect.fn` instead.
+
+```ts
+import { Effect, Schema } from "effect"
+
+// Pass a string to Effect.fn, which will improve stack traces and also
+// attach a tracing span (using Effect.withSpan behind the scenes).
+//
+// The name string should match the function name.
+//
+export const effectFunction = Effect.fn("effectFunction")(
+  // You can use `Effect.fn.Return` to specify the return type of the function.
+  // It accepts the same type parameters as `Effect.Effect`.
+  function*(n: number): Effect.fn.Return<string, SomeError> {
+    yield* Effect.logInfo("Received number:", n)
+
+    // Always return when raising an error, to ensure typescript understands that
+    // the function will not continue executing.
+    return yield* new SomeError({ message: "Failed to read the file" })
+  },
+  // Add additional functionality by passing in additional arguments
+  Effect.catch((error) => Effect.logError(`An error occurred: ${error}`)),
+  Effect.annotateLogs({
+    method: "effectFunction"
+  })
+)
+
+// Use Schema.TaggedErrorClass to define a custom error
+export class SomeError extends Schema.TaggedErrorClass<SomeError>()("SomeError", {
+  message: Schema.String
+}) {}
+```
+
+## Yielding Effects with yield*
+
+Inside `Effect.gen` or `Effect.fn`, use `yield*` to unwrap the value from an Effect. This is similar to `await` with Promises.
+
+```ts
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  // yield* unwraps the Effect and gives you the value
+  const timestamp = yield* Effect.sync(() => Date.now())
+  yield* Effect.logInfo("Current timestamp:", timestamp)
+  
+  const config = yield* Effect.succeed({ env: "prod", retries: 3 })
+  yield* Effect.logInfo("Config:", config)
+  
+  return timestamp
+})
+```
+
+## Creating Effects from Common Sources
+
+Effect provides multiple constructors for creating effects from different sources:
+
+### From Plain Values
+
+```ts
+import { Effect } from "effect"
+
+// `Effect.succeed` wraps values you already have in memory.
+export const fromValue = Effect.succeed({ env: "prod", retries: 3 })
+```
+
+### From Synchronous Code
+
+```ts
+import { Effect } from "effect"
+
+// `Effect.sync` wraps synchronous side effects that should not throw.
+export const fromSyncSideEffect = Effect.sync(() => Date.now())
+```
+
+### From Code That May Throw
+
+```ts
+import { Effect, Schema } from "effect"
+
+class InvalidPayload extends Schema.TaggedErrorClass<InvalidPayload>()("InvalidPayload", {
+  input: Schema.String,
+  cause: Schema.Defect
+}) {}
+
+// `Effect.try` wraps synchronous code that may throw.
+export const parsePayload = Effect.fn("parsePayload")((input: string) =>
+  Effect.try({
+    try: () => JSON.parse(input) as { readonly userId: number },
+    catch: (cause) => new InvalidPayload({ input, cause })
+  })
+)
+```
+
+### From Promise APIs
+
+```ts
+import { Effect, Schema } from "effect"
+
+class UserLookupError extends Schema.TaggedErrorClass<UserLookupError>()("UserLookupError", {
+  userId: Schema.Number,
+  cause: Schema.Defect
+}) {}
+
+const users = new Map<number, { readonly id: number; readonly name: string }>([
+  [1, { id: 1, name: "Ada" }],
+  [2, { id: 2, name: "Lin" }]
+])
+
+// `Effect.tryPromise` wraps Promise-based APIs that can reject or throw.
+export const fetchUser = Effect.fn("fetchUser")((userId: number) =>
+  Effect.tryPromise({
+    async try() {
+      const user = users.get(userId)
+      if (!user) {
+        throw new Error(`Missing user ${userId}`)
+      }
+      return user
+    },
+    catch: (cause) => new UserLookupError({ userId, cause })
+  })
+)
+```
+
+### From Nullable Values
+
+```ts
+import { Effect, Schema } from "effect"
+
+class MissingWorkspaceId extends Schema.TaggedErrorClass<MissingWorkspaceId>()("MissingWorkspaceId", {}) {}
+
+const requestHeaders = new Map<string, string>([
+  ["x-request-id", "req_1"]
+])
+
+// `Effect.fromNullishOr` turns nullable values into a typed effect.
+export const fromNullishHeader = Effect.fromNullishOr(requestHeaders.get("x-workspace-id")).pipe(
+  Effect.mapError(() => new MissingWorkspaceId())
+)
+```
+
+### From Callback APIs
+
+```ts
+import { Effect } from "effect"
+
+// `Effect.callback` wraps callback-style asynchronous APIs.
+export const fromCallback = Effect.callback<number>((resume) => {
+  const timeoutId = setTimeout(() => {
+    resume(Effect.succeed(200))
+  }, 10)
+
+  // Return a finalizer so interruption can cancel the callback source.
+  return Effect.sync(() => {
+    clearTimeout(timeoutId)
+  })
+})
+```
+
+## Best Practices
+
+- Use `Effect.gen` for imperative-style code blocks
+- Use `Effect.fn` for reusable Effect functions (not `Effect.gen`)
+- Always return when raising an error to help TypeScript's control flow analysis
+- Attach additional behavior with `.pipe()` and combinators
+- Name your `Effect.fn` functions to improve stack traces and tracing

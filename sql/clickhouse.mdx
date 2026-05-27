@@ -1,0 +1,514 @@
+---
+title: ClickHouse
+description: ClickHouse database client for Effect
+---
+
+The `@effect/sql-clickhouse` package provides a ClickHouse client for high-performance analytics queries with full Effect integration.
+
+## Installation
+
+```bash
+npm install @effect/sql-clickhouse @clickhouse/client
+```
+
+## Quick Start
+
+```typescript
+import { ClickhouseClient } from "@effect/sql-clickhouse"
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const ClickhouseLive = ClickhouseClient.layer({
+  url: "http://localhost:8123",
+  database: "default"
+})
+
+const program = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const events = yield* sql`SELECT * FROM events LIMIT 100`
+  return events
+}).pipe(
+  Effect.provide(ClickhouseLive)
+)
+
+Effect.runPromise(program).then(console.log)
+```
+
+## Configuration
+
+### Connection Options
+
+```typescript
+import { ClickhouseClient } from "@effect/sql-clickhouse"
+import * as Duration from "effect/Duration"
+
+const ClickhouseLive = ClickhouseClient.layer({
+  // Connection
+  url: "http://localhost:8123",
+  
+  // Or use separate host/port
+  // host: "localhost",
+  // port: 8123,
+  
+  // Database
+  database: "default",
+  
+  // Authentication
+  username: "default",
+  password: "",
+  
+  // Connection pool (requires @effect/platform-node)
+  maxConnections: 10,
+  minConnections: 2,
+  connectionTTL: Duration.minutes(5),
+  
+  // Request timeout
+  requestTimeout: Duration.seconds(30),
+  
+  // Compression
+  compression: {
+    request: true,
+    response: true
+  },
+  
+  // Name transformation
+  transformResultNames: (str) => str,
+  transformQueryNames: (str) => str
+})
+```
+
+### ClickHouse Cloud
+
+```typescript
+const ClickhouseCloudLive = ClickhouseClient.layer({
+  url: "https://your-instance.clickhouse.cloud:8443",
+  database: "default",
+  username: "default",
+  password: "your-password",
+  compression: {
+    request: true,
+    response: true
+  }
+})
+```
+
+## Basic Operations
+
+### Creating Tables
+
+```typescript
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const createEventsTable = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS events (
+      timestamp DateTime,
+      user_id UInt64,
+      event_type String,
+      properties String
+    )
+    ENGINE = MergeTree()
+    ORDER BY (timestamp, user_id)
+  `
+})
+```
+
+### Inserting Data
+
+```typescript
+const insertEvent = (
+  userId: number,
+  eventType: string,
+  properties: unknown
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      INSERT INTO events (timestamp, user_id, event_type, properties)
+      VALUES (now(), ${userId}, ${eventType}, ${JSON.stringify(properties)})
+    `
+  })
+
+// Batch insert (much more efficient)
+const insertEvents = (
+  events: Array<{
+    userId: number
+    eventType: string
+    properties: unknown
+  }>
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const rows = events.map((e) => ({
+      timestamp: new Date(),
+      user_id: e.userId,
+      event_type: e.eventType,
+      properties: JSON.stringify(e.properties)
+    }))
+    yield* sql`INSERT INTO events ${sql.insert(rows)}`
+  })
+```
+
+### Querying Data
+
+```typescript
+const getRecentEvents = (userId: number, limit: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM events
+      WHERE user_id = ${userId}
+      ORDER BY timestamp DESC
+      LIMIT ${limit}
+    `
+  })
+
+const getEventCounts = (startDate: Date, endDate: Date) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT 
+        event_type,
+        count() as count
+      FROM events
+      WHERE timestamp BETWEEN ${startDate} AND ${endDate}
+      GROUP BY event_type
+      ORDER BY count DESC
+    `
+  })
+```
+
+## ClickHouse-Specific Features
+
+### MergeTree Engine Family
+
+```typescript
+// Standard MergeTree
+const createMergeTree = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`
+    CREATE TABLE metrics (
+      date Date,
+      user_id UInt64,
+      metric_name String,
+      value Float64
+    )
+    ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(date)
+    ORDER BY (date, user_id, metric_name)
+  `
+})
+
+// ReplacingMergeTree (handles updates)
+const createReplacingMergeTree = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`
+    CREATE TABLE user_profiles (
+      user_id UInt64,
+      name String,
+      email String,
+      updated_at DateTime
+    )
+    ENGINE = ReplacingMergeTree(updated_at)
+    ORDER BY user_id
+  `
+})
+
+// SummingMergeTree (automatic aggregation)
+const createSummingMergeTree = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`
+    CREATE TABLE metrics_sum (
+      date Date,
+      metric_name String,
+      value Float64
+    )
+    ENGINE = SummingMergeTree()
+    ORDER BY (date, metric_name)
+  `
+})
+```
+
+### Arrays
+
+```typescript
+const insertWithArray = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const tags = ["typescript", "effect", "clickhouse"]
+  
+  yield* sql`
+    INSERT INTO articles (title, tags)
+    VALUES ('My Article', ${tags})
+  `
+})
+
+const queryArrays = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT * FROM articles
+    WHERE has(tags, 'effect')
+  `
+})
+```
+
+### JSON
+
+```typescript
+const queryJson = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT 
+      user_id,
+      JSONExtractString(properties, 'country') as country,
+      JSONExtractInt(properties, 'age') as age
+    FROM events
+    WHERE JSONExtractString(properties, 'country') = 'US'
+  `
+})
+```
+
+### Window Functions
+
+```typescript
+const getMovingAverage = (days: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT 
+        date,
+        value,
+        avg(value) OVER (
+          ORDER BY date 
+          ROWS BETWEEN ${days - 1} PRECEDING AND CURRENT ROW
+        ) as moving_avg
+      FROM metrics
+      ORDER BY date
+    `
+  })
+```
+
+### Materialized Views
+
+```typescript
+const createMaterializedView = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  // Create target table
+  yield* sql`
+    CREATE TABLE daily_stats (
+      date Date,
+      event_type String,
+      count UInt64,
+      unique_users UInt64
+    )
+    ENGINE = SummingMergeTree()
+    ORDER BY (date, event_type)
+  `
+  
+  // Create materialized view
+  yield* sql`
+    CREATE MATERIALIZED VIEW daily_stats_mv
+    TO daily_stats
+    AS SELECT
+      toDate(timestamp) as date,
+      event_type,
+      count() as count,
+      uniq(user_id) as unique_users
+    FROM events
+    GROUP BY date, event_type
+  `
+})
+```
+
+### Approximate Aggregations
+
+```typescript
+const getApproximateStats = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT
+      event_type,
+      count() as total,
+      uniq(user_id) as unique_users,  -- HyperLogLog
+      quantile(0.5)(duration) as median_duration,  -- t-digest
+      quantiles(0.5, 0.95, 0.99)(duration) as duration_quantiles
+    FROM events
+    GROUP BY event_type
+  `
+})
+```
+
+## Time Series Analysis
+
+```typescript
+const analyzeTimeSeries = (metric: string, interval: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT
+        toStartOfInterval(timestamp, INTERVAL ${interval}) as time_bucket,
+        avg(value) as avg_value,
+        min(value) as min_value,
+        max(value) as max_value,
+        count() as count
+      FROM metrics
+      WHERE metric_name = ${metric}
+      GROUP BY time_bucket
+      ORDER BY time_bucket
+    `
+  })
+```
+
+## Streaming Large Results
+
+```typescript
+import * as Stream from "effect/Stream"
+
+const streamEvents = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  return sql.stream`
+    SELECT * FROM events
+    ORDER BY timestamp
+  `.pipe(
+    Stream.runForEach((event) =>
+      Effect.sync(() => console.log(event))
+    )
+  )
+})
+```
+
+## Migrations
+
+```typescript
+import { ClickhouseMigrator } from "@effect/sql-clickhouse"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+
+const MigratorLive = ClickhouseMigrator.layer({
+  loader: ClickhouseMigrator.fromFileSystem("./migrations"),
+  schemaDirectory: "sql/migrations"
+})
+
+const migrate = Effect.gen(function* () {
+  const migrator = yield* ClickhouseMigrator
+  yield* migrator.run()
+}).pipe(
+  Effect.provide(Layer.merge(ClickhouseLive, MigratorLive))
+)
+```
+
+Create migration files:
+
+```sql
+-- 001_create_events.sql
+CREATE TABLE IF NOT EXISTS events (
+  timestamp DateTime,
+  user_id UInt64,
+  event_type LowCardinality(String),
+  properties String
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (timestamp, user_id)
+TTL timestamp + INTERVAL 90 DAY;
+```
+
+## Performance Optimization
+
+### Use Appropriate Data Types
+
+```typescript
+// Use LowCardinality for columns with limited distinct values
+const optimizedTable = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`
+    CREATE TABLE events_optimized (
+      timestamp DateTime,
+      user_id UInt64,
+      event_type LowCardinality(String),  -- Limited distinct values
+      country LowCardinality(FixedString(2)),  -- Fixed size
+      properties String
+    )
+    ENGINE = MergeTree()
+    ORDER BY (timestamp, user_id)
+  `
+})
+```
+
+### Sampling
+
+```typescript
+const getSample = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT count()
+    FROM events
+    SAMPLE 0.1  -- Sample 10% of data
+  `
+})
+```
+
+### Prewhere Optimization
+
+```typescript
+const optimizedQuery = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT *
+    FROM events
+    PREWHERE event_type = 'purchase'  -- Filter before other operations
+    WHERE timestamp >= today() - INTERVAL 7 DAY
+  `
+})
+```
+
+## Best Practices
+
+1. **Batch inserts**: Always insert data in batches for performance
+2. **Order by clause**: Choose the right ORDER BY for your query patterns
+3. **Partitioning**: Use PARTITION BY for large tables
+4. **TTL**: Set TTL to automatically delete old data
+5. **Use appropriate engines**: Choose the right MergeTree variant
+6. **Compression**: Enable compression for network efficiency
+7. **Materialize common queries**: Use materialized views for frequent aggregations
+
+## Error Handling
+
+```typescript
+import { SqlError } from "effect/unstable/sql/SqlError"
+import * as Effect from "effect/Effect"
+
+const safeQuery = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`SELECT * FROM events LIMIT 100`
+}).pipe(
+  Effect.catchTag("SqlError", (error) => {
+    console.error("ClickHouse error:", error.message)
+    return Effect.succeed([])
+  })
+)
+```
+
+## Use Cases
+
+- **Analytics**: Real-time analytics dashboards
+- **Logs**: Log aggregation and analysis
+- **Metrics**: Time series metrics storage
+- **Events**: Event tracking and analysis
+- **OLAP**: Online analytical processing
+
+## Requirements
+
+- ClickHouse Server 20.3 or higher
+- Node.js 18+ (with @effect/platform-node for connection pooling)
+- Effect 4.0.0 or higher
+
+## Next Steps
+
+- [SQL Overview →](/sql/overview)
+- [PostgreSQL →](/sql/postgres)
+- [Time Series with ClickHouse](https://clickhouse.com/docs/en/guides/developer/time-series/)

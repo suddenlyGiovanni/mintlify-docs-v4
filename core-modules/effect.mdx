@@ -1,0 +1,200 @@
+---
+title: Effect
+description: Core Effect module for describing asynchronous, concurrent, and effectful computations in TypeScript
+---
+
+The `Effect` module is the foundation of the Effect library, providing a powerful way to model and compose asynchronous, concurrent, and effectful computations.
+
+## Overview
+
+An `Effect<A, E, R>` represents a computation that:
+- May succeed with a value of type `A`
+- May fail with an error of type `E`
+- Requires a context/environment of type `R`
+
+Effects are lazy and immutable - they describe computations that can be executed later. This allows for powerful composition, error handling, resource management, and concurrency patterns.
+
+## Key Features
+
+- **Type-safe error handling**: Errors are tracked in the type system
+- **Resource management**: Automatic cleanup with scoped resources
+- **Structured concurrency**: Safe parallel and concurrent execution
+- **Composable**: Effects can be combined using operators like `flatMap`, `map`, `zip`
+- **Testable**: Built-in support for testing with controlled environments
+- **Interruptible**: Effects can be safely interrupted and cancelled
+
+## Creating Effects
+
+### From Plain Values
+
+```ts
+import { Effect } from "effect"
+
+// Create an effect that succeeds with a value
+const success = Effect.succeed(42)
+
+// Create an effect that fails with an error
+const failure = Effect.fail(new Error("Something went wrong"))
+
+// Create an effect from a synchronous function
+const sync = Effect.sync(() => Math.random())
+```
+
+### From Promises
+
+```ts
+import { Effect } from "effect"
+
+// Convert a Promise to an Effect
+const fromPromise = Effect.tryPromise({
+  try: () => fetch("https://api.example.com/data"),
+  catch: (error) => new Error(`Failed to fetch: ${error}`)
+})
+```
+
+### From Callbacks
+
+```ts
+import { Effect } from "effect"
+import * as fs from "fs"
+
+// Convert a callback-based API to an Effect
+const readFile = (path: string) =>
+  Effect.async<string, Error>((resume) => {
+    fs.readFile(path, "utf8", (err, data) => {
+      if (err) {
+        resume(Effect.fail(new Error(err.message)))
+      } else {
+        resume(Effect.succeed(data))
+      }
+    })
+  })
+```
+
+## Composing Effects with Effect.gen
+
+Use `Effect.gen` to write code in an imperative style similar to async/await:
+
+```ts
+import { Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  yield* Effect.log("Starting the file processing...")
+  
+  const content = yield* readFile("data.txt")
+  const processed = content.toUpperCase()
+  
+  yield* Effect.log("Processing complete")
+  
+  return processed
+})
+```
+
+## Using Effect.fn for Reusable Functions
+
+When writing functions that return an Effect, use `Effect.fn` to use the generator syntax:
+
+```ts
+import { Effect } from "effect"
+
+// Define a reusable effect function
+export const processUser = Effect.fn("processUser")(
+  function*(userId: number): Effect.fn.Return<string, Error> {
+    yield* Effect.logInfo("Processing user:", userId)
+    
+    const user = yield* fetchUser(userId)
+    const validated = yield* validateUser(user)
+    
+    return validated.name
+  }
+)
+```
+
+## Error Handling
+
+```ts
+import { Effect } from "effect"
+
+// Effect that may fail
+const divide = (a: number, b: number) =>
+  b === 0
+    ? Effect.fail(new Error("Division by zero"))
+    : Effect.succeed(a / b)
+
+// Handle errors
+const safeProgram = divide(10, 2).pipe(
+  Effect.catchAll((error) => Effect.succeed(-1)),
+  Effect.map((result) => `Result: ${result}`)
+)
+```
+
+## Combining Multiple Effects
+
+```ts
+import { Effect } from "effect"
+
+// Run effects in sequence
+const sequential = Effect.gen(function*() {
+  const a = yield* Effect.succeed(1)
+  const b = yield* Effect.succeed(2)
+  return a + b
+})
+
+// Run effects in parallel
+const parallel = Effect.all([
+  Effect.succeed(1),
+  Effect.succeed(2),
+  Effect.succeed(3)
+], { concurrency: "unbounded" })
+```
+
+## Running Effects
+
+```ts
+import { Effect } from "effect"
+
+// Run as a Promise
+Effect.runPromise(program).then(console.log)
+
+// Run synchronously (only for effects that don't require async operations)
+const result = Effect.runSync(Effect.succeed(42))
+
+// Run with a callback
+Effect.runCallback(program, (exit) => {
+  if (exit._tag === "Success") {
+    console.log("Success:", exit.value)
+  } else {
+    console.error("Failure:", exit.cause)
+  }
+})
+```
+
+## Type Utilities
+
+```ts
+import type { Effect } from "effect"
+
+// Extract the success type from an Effect
+type MyEffect = Effect.Effect<string, Error, never>
+type SuccessType = Effect.Success<MyEffect> // string
+
+// Extract the error type
+type ErrorType = Effect.Error<MyEffect> // Error
+
+// Extract the context type
+type ServicesType = Effect.Services<MyEffect> // never
+```
+
+## Best Practices
+
+1. **Prefer Effect.gen**: Use `Effect.gen` for better readability instead of deeply nested `pipe` chains
+2. **Use Effect.fn for functions**: When creating functions that return Effects, wrap them with `Effect.fn`
+3. **Handle errors explicitly**: Don't ignore error types - handle them with `catchTag`, `catchAll`, or similar operators
+4. **Keep effects pure**: Effects should be descriptions of computations, not perform side effects when created
+5. **Use services for dependencies**: Inject dependencies through the Effect context rather than importing them directly
+
+## Next Steps
+
+- Learn about [Schema](/core-modules/schema) for runtime validation
+- Explore [Layer](/core-modules/layer) for dependency injection
+- Understand [Stream](/core-modules/stream) for processing sequences of values

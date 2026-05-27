@@ -1,0 +1,249 @@
+---
+title: "RPC"
+description: "Define type-safe remote procedure calls with Effect"
+---
+
+## Overview
+
+The `effect/unstable/rpc` modules provide tools for defining type-safe remote procedure calls with:
+
+- Schema-validated payloads and responses
+- Automatic serialization
+- Built-in error handling
+- Support for streaming responses
+
+## Defining RPC operations
+
+Create RPC definitions with `Rpc.make`:
+
+```typescript
+import { Schema } from "effect"
+import { Rpc } from "effect/unstable/rpc"
+
+export const GetUser = Rpc.make("GetUser", {
+  payload: { id: Schema.Number },
+  success: Schema.Struct({
+    id: Schema.Number,
+    name: Schema.String,
+    email: Schema.String
+  })
+})
+
+export const CreateUser = Rpc.make("CreateUser", {
+  payload: {
+    name: Schema.String,
+    email: Schema.String
+  },
+  success: Schema.Struct({
+    id: Schema.Number,
+    name: Schema.String,
+    email: Schema.String
+  })
+})
+```
+
+## RPC with errors
+
+Define custom error types:
+
+```typescript
+export class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>()("UserNotFound", {
+  userId: Schema.Number
+}) {}
+
+export const GetUser = Rpc.make("GetUser", {
+  payload: { id: Schema.Number },
+  success: UserSchema,
+  failure: UserNotFound
+})
+```
+
+## RPC groups
+
+Organize related RPCs into groups:
+
+```typescript
+import { RpcGroup } from "effect/unstable/rpc"
+
+export class UsersRpc extends RpcGroup.make("Users")(
+  GetUser,
+  CreateUser,
+  UpdateUser,
+  DeleteUser
+) {}
+```
+
+## Implementing RPC handlers
+
+```typescript
+import { Effect } from "effect"
+
+const getUserHandler = (payload: { id: number }) =>
+  Effect.gen(function*() {
+    const userService = yield* UserService
+    const user = yield* userService.findById(payload.id)
+    
+    if (!user) {
+      return yield* new UserNotFound({ userId: payload.id })
+    }
+    
+    return user
+  })
+```
+
+## RPC middleware
+
+Apply middleware to RPC calls:
+
+```typescript
+import { RpcMiddleware } from "effect/unstable/rpc"
+
+const loggingMiddleware = RpcMiddleware.make((request, next) =>
+  Effect.gen(function*() {
+    yield* Effect.log(`RPC: ${request.name}`)
+    const start = Date.now()
+    
+    const result = yield* next(request)
+    
+    yield* Effect.log(`RPC ${request.name} completed in ${Date.now() - start}ms`)
+    return result
+  })
+)
+```
+
+## Serialization
+
+RPC payloads and responses are automatically serialized using the provided schemas:
+
+```typescript
+import { RpcSerialization } from "effect/unstable/rpc"
+
+// Custom serialization if needed
+const customSerialization = RpcSerialization.make({
+  encode: (value) => JSON.stringify(value),
+  decode: (bytes) => JSON.parse(bytes)
+})
+```
+
+## Using with cluster entities
+
+RPC definitions integrate with cluster entities:
+
+```typescript
+import { Entity } from "effect/unstable/cluster"
+import { Rpc } from "effect/unstable/rpc"
+import { Schema } from "effect"
+
+const Increment = Rpc.make("Increment", {
+  payload: { amount: Schema.Number },
+  success: Schema.Number
+})
+
+const Counter = Entity.make("Counter", [Increment])
+
+const CounterLayer = Counter.toLayer(
+  Effect.gen(function*() {
+    // Implementation
+    return Counter.of({
+      Increment: ({ payload }) => Effect.succeed(payload.amount)
+    })
+  })
+)
+```
+
+## Concurrent RPC execution
+
+By default, RPCs run sequentially. Use `Rpc.fork` to allow concurrent execution:
+
+```typescript
+const handler = ({ payload }) =>
+  performWork(payload).pipe(
+    Rpc.fork  // Allow this handler to run concurrently
+  )
+```
+
+## Testing RPC handlers
+
+```typescript
+import { RpcTest } from "effect/unstable/rpc"
+
+const testClient = RpcTest.make([
+  [GetUser, getUserHandler],
+  [CreateUser, createUserHandler]
+])
+
+const program = Effect.gen(function*() {
+  const user = yield* testClient.GetUser({ id: 123 })
+  expect(user.name).toBe("Alice")
+})
+```
+
+## Complete example
+
+```typescript
+import { Effect, Schema } from "effect"
+import { Rpc, RpcGroup } from "effect/unstable/rpc"
+
+class User extends Schema.Class<User>("User")({
+  id: Schema.Number,
+  name: Schema.String,
+  email: Schema.String
+}) {}
+
+class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>()("UserNotFound", {
+  userId: Schema.Number
+}) {}
+
+export const GetUser = Rpc.make("GetUser", {
+  payload: { id: Schema.Number },
+  success: User,
+  failure: UserNotFound
+})
+
+export const ListUsers = Rpc.make("ListUsers", {
+  success: Schema.Array(User)
+})
+
+export const CreateUser = Rpc.make("CreateUser", {
+  payload: {
+    name: Schema.String,
+    email: Schema.String
+  },
+  success: User
+})
+
+export class UsersRpc extends RpcGroup.make("Users")(
+  GetUser,
+  ListUsers,
+  CreateUser
+) {}
+
+// Implement handlers
+const handlers = {
+  GetUser: ({ payload }) =>
+    Effect.gen(function*() {
+      if (payload.id === 1) {
+        return { id: 1, name: "Alice", email: "alice@example.com" }
+      }
+      return yield* new UserNotFound({ userId: payload.id })
+    }),
+  
+  ListUsers: () =>
+    Effect.succeed([
+      { id: 1, name: "Alice", email: "alice@example.com" },
+      { id: 2, name: "Bob", email: "bob@example.com" }
+    ]),
+  
+  CreateUser: ({ payload }) =>
+    Effect.succeed({
+      id: Date.now(),
+      name: payload.name,
+      email: payload.email
+    })
+}
+```
+
+## See also
+
+- [Cluster](/unstable/cluster) - Build distributed applications
+- [HTTP API](/unstable/http-api) - Schema-first HTTP APIs

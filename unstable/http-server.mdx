@@ -1,0 +1,150 @@
+---
+title: "HTTP Server"
+description: "Build HTTP servers with routing and middleware using Effect"
+---
+
+## Overview
+
+The HTTP Server modules from `effect/unstable/http` provide tools for building HTTP servers with routing, middleware, and request handling.
+
+## Creating a server
+
+```typescript
+import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+import { Layer } from "effect"
+import { HttpRouter, HttpServer } from "effect/unstable/http"
+import { createServer } from "node:http"
+
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/health", HttpRouter.json({ status: "ok" }))
+)
+
+const server = HttpRouter.serve(routes).pipe(
+  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
+)
+
+Layer.launch(server).pipe(NodeRuntime.runMain)
+```
+
+## Routing
+
+### Basic routes
+
+```typescript
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/", HttpRouter.text("Welcome")),
+  HttpRouter.get("/users", HttpRouter.json(users)),
+  HttpRouter.post("/users", createUserHandler)
+)
+```
+
+### Route parameters
+
+```typescript
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/users/:id", Effect.gen(function*() {
+    const params = yield* HttpRouter.params
+    const userId = params.id
+    // Handle request
+  }))
+)
+```
+
+### Mounting sub-routers
+
+```typescript
+const apiRoutes = HttpRouter.empty.pipe(
+  HttpRouter.get("/users", getUsersHandler),
+  HttpRouter.post("/users", createUserHandler)
+)
+
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.mount("/api", apiRoutes)
+)
+```
+
+## Request handling
+
+### Accessing the request
+
+```typescript
+const handler = Effect.gen(function*() {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const body = yield* request.json
+  // Process request
+})
+```
+
+### Sending responses
+
+```typescript
+// JSON response
+const handler = HttpRouter.json({ message: "Success" })
+
+// Text response
+const handler = HttpRouter.text("Hello World")
+
+// Custom response
+const handler = Effect.succeed(
+  HttpServerResponse.empty({ status: 201 })
+)
+```
+
+## Middleware
+
+### Creating middleware
+
+```typescript
+const loggingMiddleware = HttpMiddleware.make((request, next) =>
+  Effect.gen(function*() {
+    yield* Effect.log(`${request.method} ${request.url}`)
+    return yield* next(request)
+  })
+)
+```
+
+### Applying middleware
+
+```typescript
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/users", getUsersHandler),
+  HttpRouter.use(loggingMiddleware)
+)
+```
+
+## Platform support
+
+### Node.js
+
+```typescript
+import { NodeHttpServer } from "@effect/platform-node"
+import { createServer } from "node:http"
+
+const serverLayer = NodeHttpServer.layer(createServer, { port: 3000 })
+```
+
+### Bun
+
+```typescript
+import { BunHttpServer } from "@effect/platform-bun"
+
+const serverLayer = BunHttpServer.layer({ port: 3000 })
+```
+
+## Web handler
+
+Create a web handler for serverless environments:
+
+```typescript
+const { handler, dispose } = HttpRouter.toWebHandler(
+  routes.pipe(Layer.provide(HttpServer.layerServices))
+)
+
+// Use in serverless function
+export default handler
+```
+
+## See also
+
+- [HTTP Client](/unstable/http-client) - Make HTTP requests
+- [HTTP API](/unstable/http-api) - Build schema-first APIs

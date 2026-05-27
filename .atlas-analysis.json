@@ -1,0 +1,219 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Effect",
+  "projectDescription": "The missing standard library for TypeScript, for writing production-grade software.",
+  "theme": "palm",
+  "primaryColor": "#7C3AED",
+  "lightColor": "#A78BFA",
+  "darkColor": "#5B21B6",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/effect-basics",
+              "core-concepts/services",
+              "core-concepts/error-handling",
+              "core-concepts/resources-and-scopes",
+              "core-concepts/running-effects"
+            ]
+          },
+          {
+            "group": "Core Modules",
+            "pages": [
+              "core-modules/effect",
+              "core-modules/schema",
+              "core-modules/stream",
+              "core-modules/layer",
+              "core-modules/config",
+              "core-modules/cache",
+              "core-modules/pubsub",
+              "core-modules/queue",
+              "core-modules/schedule",
+              "core-modules/data-structures"
+            ]
+          },
+          {
+            "group": "Advanced Topics",
+            "pages": [
+              "advanced/batching-requests",
+              "advanced/managed-runtime",
+              "advanced/observability",
+              "advanced/testing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Unstable Modules",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "unstable/overview"
+            ]
+          },
+          {
+            "group": "HTTP & API",
+            "pages": [
+              "unstable/http-client",
+              "unstable/http-server",
+              "unstable/http-api"
+            ]
+          },
+          {
+            "group": "CLI & Processes",
+            "pages": [
+              "unstable/cli",
+              "unstable/process"
+            ]
+          },
+          {
+            "group": "AI & Language Models",
+            "pages": [
+              "unstable/ai"
+            ]
+          },
+          {
+            "group": "Distributed Systems",
+            "pages": [
+              "unstable/cluster",
+              "unstable/rpc",
+              "unstable/workflow"
+            ]
+          },
+          {
+            "group": "Other Modules",
+            "pages": [
+              "unstable/observability",
+              "unstable/persistence",
+              "unstable/socket",
+              "unstable/workers"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Platform Packages",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "platform/overview"
+            ]
+          },
+          {
+            "group": "Runtimes",
+            "pages": [
+              "platform/node",
+              "platform/browser",
+              "platform/bun"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "SQL Packages",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "sql/overview"
+            ]
+          },
+          {
+            "group": "Databases",
+            "pages": [
+              "sql/postgres",
+              "sql/mysql",
+              "sql/sqlite",
+              "sql/mssql",
+              "sql/clickhouse"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Migration & Reference",
+        "groups": [
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/overview",
+              "migration/services",
+              "migration/error-handling",
+              "migration/schema"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/api-reference",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Type-safe error handling with Effect.gen and Effect.fn",
+    "Composable service-oriented architecture with ServiceMap",
+    "Powerful Schema validation and transformation",
+    "Built-in observability with tracing, logging, and metrics",
+    "Resource management with automatic cleanup via Scope",
+    "Concurrent programming primitives (Queue, PubSub, Ref, Semaphore)",
+    "Stream processing for pull-based data sources",
+    "HTTP client and server with type-safe API definitions",
+    "SQL integrations for major databases",
+    "CLI building utilities with typed arguments",
+    "AI/Language model integrations",
+    "Distributed computing with cluster modules"
+  ],
+  "publicApiSurface": [
+    "Effect.gen",
+    "Effect.fn",
+    "Effect.succeed",
+    "Effect.fail",
+    "Effect.promise",
+    "Effect.tryPromise",
+    "Effect.catchTag",
+    "Effect.catchTags",
+    "Schema.String",
+    "Schema.Number",
+    "Schema.Struct",
+    "Schema.TaggedErrorClass",
+    "Schema.decode",
+    "Schema.encode",
+    "ServiceMap.Service",
+    "ServiceMap.Reference",
+    "Layer.effect",
+    "Layer.provide",
+    "Layer.provideMerge",
+    "Stream.fromIterable",
+    "Stream.fromAsyncIterable",
+    "Stream.map",
+    "Stream.flatMap",
+    "Config.string",
+    "Config.number",
+    "Queue.bounded",
+    "PubSub.bounded",
+    "Ref.make",
+    "Schedule.exponential",
+    "HttpClient.get",
+    "HttpClient.post",
+    "HttpApi.api",
+    "Sql.tag"
+  ]
+}

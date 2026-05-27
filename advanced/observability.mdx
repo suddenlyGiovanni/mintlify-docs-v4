@@ -1,0 +1,365 @@
+---
+title: Observability
+description: Built-in logging, distributed tracing, and metrics in Effect applications
+---
+
+## Overview
+
+Effect has built-in support for structured logging, distributed tracing, and metrics. These observability features help you understand what your application is doing in production, debug issues, and monitor performance.
+
+For exporting telemetry data:
+- Use the lightweight **Otlp modules** from `effect/unstable/observability` for new projects
+- Use **@effect/opentelemetry** when integrating with existing OpenTelemetry setups
+
+## Structured Logging
+
+### Basic Logging
+
+Effect provides log levels similar to other logging libraries:
+
+```typescript
+import { Effect } from "effect"
+
+Effect.gen(function*() {
+  yield* Effect.logDebug("Debug information")
+  yield* Effect.logInfo("Informational message")
+  yield* Effect.logWarning("Warning message")
+  yield* Effect.logError("Error message")
+})
+```
+
+### Structured Metadata
+
+Add structured metadata to your logs:
+
+```typescript
+import { Effect } from "effect"
+
+export const logCheckoutFlow = Effect.gen(function*() {
+  yield* Effect.logDebug("loading checkout state")
+  yield* Effect.logInfo("validating cart")
+  yield* Effect.logWarning("inventory is low for one line item")
+  yield* Effect.logError("payment provider timeout")
+}).pipe(
+  // Attach structured metadata to all log lines
+  Effect.annotateLogs({
+    service: "checkout-api",
+    route: "POST /checkout"
+  }),
+  // Add a duration span (checkout=<N>ms)
+  Effect.withLogSpan("checkout")
+)
+```
+
+## Customizing Logging
+
+### JSON Logger
+
+Emit one JSON line per log entry for production:
+
+```typescript
+import { Logger, Layer } from "effect"
+
+export const JsonLoggerLayer = Logger.layer([Logger.consoleJson])
+```
+
+### Log Level Filtering
+
+Raise the minimum level to skip debug/info logs:
+
+```typescript
+import { Layer, References } from "effect"
+
+export const WarnAndAbove = Layer.succeed(References.MinimumLogLevel, "Warn")
+```
+
+### File Logger
+
+Write logs to a file:
+
+```typescript
+import { NodeFileSystem } from "@effect/platform-node"
+import { Logger, Layer } from "effect"
+
+export const FileLoggerLayer = Logger.layer([
+  Logger.toFile(Logger.formatSimple, "app.log")
+]).pipe(
+  Layer.provide(NodeFileSystem.layer)
+)
+```
+
+### Custom Logger
+
+Define a custom logger for app-specific formatting and routing:
+
+```typescript
+import { Effect, Logger, Layer } from "effect"
+
+export const appLogger = Effect.gen(function*() {
+  yield* Effect.logDebug("initializing app logger")
+  
+  return yield* Logger.batched(Logger.formatStructured, {
+    window: "1 second",
+    flush: Effect.fn(function*(batch) {
+      // Send batch to external logging service
+      console.log(`Flushing ${batch.length} log entries`)
+    })
+  })
+})
+
+export const AppLoggerLayer = Logger.layer([appLogger]).pipe(
+  Layer.provideMerge(WarnAndAbove)
+)
+```
+
+### Environment-Based Logger
+
+Switch loggers based on environment:
+
+```typescript
+import { Config, Effect, Layer, Logger } from "effect"
+
+export const LoggerLayer = Layer.unwrap(Effect.gen(function*() {
+  const env = yield* Config.string("NODE_ENV").pipe(
+    Config.withDefault("development")
+  )
+  
+  if (env === "production") {
+    return AppLoggerLayer
+  }
+  
+  return Logger.layer([Logger.defaultLogger])
+}))
+```
+
+## Distributed Tracing
+
+### What is Tracing?
+
+Distributed tracing tracks requests as they flow through your system. Each operation creates a "span" that records:
+- Operation name and duration
+- Parent-child relationships
+- Custom attributes
+- Error information
+
+### Adding Spans
+
+Add spans to track operation duration:
+
+```typescript
+import { Effect } from "effect"
+
+const processOrder = Effect.gen(function*() {
+  yield* Effect.logInfo("processing order")
+  yield* Effect.sleep("50 millis")
+}).pipe(
+  Effect.withSpan("process-order")
+)
+```
+
+With custom attributes:
+
+```typescript
+Effect.withSpan("process-order", {
+  attributes: {
+    orderId: "ord_123",
+    customerId: "cust_456"
+  }
+})
+```
+
+### OTLP Tracing Setup
+
+Configure OpenTelemetry Protocol (OTLP) tracing export:
+
+```typescript
+import { Layer } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
+import { OtlpLogger, OtlpSerialization, OtlpTracer } from "effect/unstable/observability"
+
+// Configure OTLP span export
+export const OtlpTracingLayer = OtlpTracer.layer({
+  url: "http://localhost:4318/v1/traces",
+  resource: {
+    serviceName: "checkout-api",
+    serviceVersion: "1.0.0",
+    attributes: {
+      "deployment.environment": "staging"
+    }
+  }
+})
+
+// Configure OTLP log export
+export const OtlpLoggingLayer = OtlpLogger.layer({
+  url: "http://localhost:4318/v1/logs",
+  resource: {
+    serviceName: "checkout-api",
+    serviceVersion: "1.0.0"
+  }
+})
+
+// Reusable observability layer
+export const ObservabilityLayer = Layer.merge(
+  OtlpTracingLayer,
+  OtlpLoggingLayer
+).pipe(
+  Layer.provide(OtlpSerialization.layerJson),
+  Layer.provide(FetchHttpClient.layer)
+)
+```
+
+### Complete Tracing Example
+
+Here's a complete service with tracing:
+
+```typescript
+import { Effect, Layer, ServiceMap } from "effect"
+
+export class Checkout extends ServiceMap.Service<Checkout, {
+  processCheckout(orderId: string): Effect.Effect<void>
+}>()("acme/Checkout") {
+  static readonly layer = Layer.effect(
+    Checkout,
+    Effect.gen(function*() {
+      yield* Effect.logInfo("setting up checkout service")
+      
+      return Checkout.of({
+        processCheckout: Effect.fn("Checkout.processCheckout")(
+          function*(orderId: string) {
+            yield* Effect.logInfo("starting checkout", { orderId })
+            
+            // Add span for card charging
+            yield* Effect.sleep("50 millis").pipe(
+              Effect.withSpan("checkout.charge-card"),
+              Effect.annotateSpans({
+                "checkout.order_id": orderId,
+                "checkout.provider": "acme-pay"
+              })
+            )
+            
+            // Add span for order persistence
+            yield* Effect.sleep("20 millis").pipe(
+              Effect.withSpan("checkout.persist-order")
+            )
+            
+            yield* Effect.logInfo("checkout completed", { orderId })
+          }
+        )
+      })
+    })
+  )
+}
+```
+
+### Using the Observability Layer
+
+Provide the observability layer at the top level:
+
+```typescript
+import { NodeRuntime } from "@effect/platform-node"
+import { Layer } from "effect"
+
+const CheckoutTest = Layer.effectDiscard(
+  Effect.gen(function*() {
+    const checkout = yield* Checkout
+    yield* checkout.processCheckout("ord_123")
+  }).pipe(
+    Effect.withSpan("checkout-test-run")
+  )
+).pipe(
+  Layer.withSpan("checkout-test"),
+  Layer.provide(Checkout.layer)
+)
+
+const Main = CheckoutTest.pipe(
+  Layer.provide(ObservabilityLayer)
+)
+
+Layer.launch(Main).pipe(
+  NodeRuntime.runMain
+)
+```
+
+## Span Annotations
+
+Add custom attributes to spans:
+
+```typescript
+// On the current span
+Effect.annotateCurrentSpan({
+  userId: "user_123",
+  action: "purchase"
+})
+
+// On a specific span
+Effect.annotateSpans({
+  database: "postgres",
+  query: "SELECT * FROM users"
+})
+```
+
+## Tracing Best Practices
+
+1. **Add spans at service boundaries**: Track calls between services
+2. **Use meaningful span names**: Name spans after the operation (e.g., "Database.query", "API.fetch")
+3. **Add relevant attributes**: Include IDs, types, and other context
+4. **Use Effect.fn with names**: Automatically creates spans with good names
+5. **Annotate errors**: Errors are automatically captured in spans
+6. **Use log spans for timing**: `Effect.withLogSpan` adds duration metadata to logs
+
+## Observability Backends
+
+Effect's OTLP exporters work with any OpenTelemetry-compatible backend:
+
+- **Jaeger**: Open-source distributed tracing
+- **Zipkin**: Distributed tracing system
+- **Honeycomb**: Observability platform
+- **Datadog**: Application monitoring
+- **New Relic**: Full-stack observability
+- **Grafana Tempo**: Distributed tracing backend
+- **AWS X-Ray**: Distributed tracing for AWS
+
+## Local Development Setup
+
+Run a local OpenTelemetry collector:
+
+```yaml
+# docker-compose.yml
+version: '3'
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"  # UI
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+```
+
+Then visit `http://localhost:16686` to view traces.
+
+## Combining Logging and Tracing
+
+Logs and traces work together:
+
+```typescript
+Effect.gen(function*() {
+  yield* Effect.logInfo("Starting operation")
+  
+  yield* Effect.sleep("100 millis").pipe(
+    Effect.withSpan("expensive-operation"),
+    Effect.annotateLogs({ operation: "expensive" })
+  )
+  
+  yield* Effect.logInfo("Operation complete")
+}).pipe(
+  Effect.withSpan("parent-operation"),
+  Effect.annotateLogs({ service: "api" })
+)
+```
+
+This creates:
+- A parent span "parent-operation"
+- A child span "expensive-operation"
+- Logs with `service=api` and `operation=expensive` metadata
+- Duration metadata for the parent operation

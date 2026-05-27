@@ -1,0 +1,292 @@
+---
+title: "AI"
+description: "Work with language models and AI providers using Effect's provider-agnostic interface"
+---
+
+## Overview
+
+Effect's AI modules from `effect/unstable/ai` provide a provider-agnostic interface for working with language models. You can:
+
+- Generate text from prompts
+- Generate and validate structured objects with Schema
+- Stream responses in real-time
+- Use execution plans to handle fallbacks and retries across providers
+
+## Setting up a provider
+
+### Anthropic
+
+```typescript
+import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
+import { Config, Layer } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
+
+const AnthropicClientLayer = AnthropicClient.layerConfig({
+  apiKey: Config.redacted("ANTHROPIC_API_KEY")
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+const model = AnthropicLanguageModel.model("claude-opus-4-6")
+```
+
+### OpenAI
+
+```typescript
+import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
+import { Config, Layer } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
+
+const OpenAiClientLayer = OpenAiClient.layerConfig({
+  apiKey: Config.redacted("OPENAI_API_KEY")
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+const model = OpenAiLanguageModel.model("gpt-4.1")
+```
+
+## Generating text
+
+```typescript
+import { Effect } from "effect"
+import { LanguageModel } from "effect/unstable/ai"
+
+const generateAnnouncement = Effect.gen(function*() {
+  const model = yield* LanguageModel.LanguageModel
+  
+  const response = yield* model.generateText({
+    prompt: "Write a short launch announcement for Effect 4.0. " +
+      "Keep it concise and include one concrete user benefit."
+  })
+  
+  yield* Effect.logInfo(
+    `Finished with ${response.finishReason}. ` +
+    `Tokens: ${response.usage.outputTokens.total}`
+  )
+  
+  return response.text
+}).pipe(
+  Effect.provide(model)
+)
+```
+
+## Generating structured objects
+
+Generate and validate objects with Effect Schema:
+
+```typescript
+import { Schema } from "effect"
+import { LanguageModel } from "effect/unstable/ai"
+
+class LaunchPlan extends Schema.Class<LaunchPlan>("LaunchPlan")({
+  audience: Schema.String,
+  channels: Schema.Array(Schema.String),
+  launchDate: Schema.String,
+  summary: Schema.String,
+  keyRisks: Schema.Array(Schema.String)
+}) {}
+
+const extractLaunchPlan = Effect.gen(function*() {
+  const model = yield* LanguageModel.LanguageModel
+  
+  const response = yield* model.generateObject({
+    objectName: "launch_plan",
+    prompt:
+      "Convert these notes into a launch plan object: " +
+      "Target developers, announce on Twitter and HN, launch next week",
+    schema: LaunchPlan
+  })
+  
+  return response.value
+}).pipe(
+  Effect.provide(model)
+)
+```
+
+## Streaming responses
+
+Stream text as it's generated:
+
+```typescript
+import { Stream } from "effect"
+import { LanguageModel, Response } from "effect/unstable/ai"
+
+const streamHighlights = (version: string) =>
+  LanguageModel.streamText({
+    prompt: `Write release highlights for version ${version} as a short bulleted list.`
+  }).pipe(
+    Stream.filter((part): part is Response.TextDeltaPart => 
+      part.type === "text-delta"
+    ),
+    Stream.map((part) => part.delta),
+    Stream.provide(model)
+  )
+
+// Use the stream
+const program = streamHighlights("4.0").pipe(
+  Stream.runForEach((chunk) => Console.log(chunk))
+)
+```
+
+## Execution plans
+
+Define fallback strategies across multiple providers:
+
+```typescript
+import { ExecutionPlan } from "effect"
+import { OpenAiLanguageModel } from "@effect/ai-openai"
+import { AnthropicLanguageModel } from "@effect/ai-anthropic"
+
+const plan = ExecutionPlan.make(
+  {
+    provide: OpenAiLanguageModel.model("gpt-5.2"),
+    attempts: 3
+  },
+  {
+    provide: AnthropicLanguageModel.model("claude-opus-4-6"),
+    attempts: 2
+  }
+)
+
+// Use in a service
+const DraftsModel = yield* plan.withRequirements
+
+const generateDraft = Effect.gen(function*() {
+  const model = yield* LanguageModel.LanguageModel
+  return yield* model.generateText({ prompt: "..." })
+}).pipe(
+  Effect.withExecutionPlan(DraftsModel)
+)
+```
+
+## Error handling
+
+Map AI errors to custom error types:
+
+```typescript
+import { AiError } from "effect/unstable/ai"
+import { Schema } from "effect"
+
+export class AiWriterError extends Schema.TaggedErrorClass<AiWriterError>()("AiWriterError", {
+  reason: AiError.AiErrorReason
+}) {
+  static fromAiError(error: AiError.AiError) {
+    return new AiWriterError({
+      reason: error.reason
+    })
+  }
+}
+
+const result = yield* model.generateText({ prompt: "..." }).pipe(
+  Effect.mapError((error) => AiWriterError.fromAiError(error))
+)
+```
+
+## Accessing provider information
+
+Get the current provider name:
+
+```typescript
+import { Model } from "effect/unstable/ai"
+
+const provider = yield* Model.ProviderName
+yield* Effect.log(`Using provider: ${provider}`)
+```
+
+## Complete example
+
+```typescript
+import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
+import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
+import { Config, Effect, ExecutionPlan, Layer, Schema, ServiceMap } from "effect"
+import { AiError, LanguageModel, Model } from "effect/unstable/ai"
+import { FetchHttpClient } from "effect/unstable/http"
+
+const AnthropicClientLayer = AnthropicClient.layerConfig({
+  apiKey: Config.redacted("ANTHROPIC_API_KEY")
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+const OpenAiClientLayer = OpenAiClient.layerConfig({
+  apiKey: Config.redacted("OPENAI_API_KEY")
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+const DraftPlan = ExecutionPlan.make(
+  {
+    provide: OpenAiLanguageModel.model("gpt-5.2"),
+    attempts: 3
+  },
+  {
+    provide: AnthropicLanguageModel.model("claude-opus-4-6"),
+    attempts: 2
+  }
+)
+
+export class AiWriterError extends Schema.TaggedErrorClass<AiWriterError>()("AiWriterError", {
+  reason: AiError.AiErrorReason
+}) {
+  static fromAiError(error: AiError.AiError) {
+    return new AiWriterError({ reason: error.reason })
+  }
+}
+
+export class AiWriter extends ServiceMap.Service<AiWriter, {
+  draftAnnouncement(product: string): Effect.Effect<{
+    readonly provider: string
+    readonly text: string
+  }, AiWriterError>
+}>()("docs/AiWriter") {
+  static readonly layer = Layer.effect(
+    AiWriter,
+    Effect.gen(function*() {
+      const draftsModel = yield* DraftPlan.withRequirements
+
+      const draftAnnouncement = Effect.fn("AiWriter.draftAnnouncement")(
+        function*(product: string) {
+          const model = yield* LanguageModel.LanguageModel
+          const provider = yield* Model.ProviderName
+          
+          const response = yield* model.generateText({
+            prompt: `Write a short launch announcement for ${product}. ` +
+              "Keep it concise and include one concrete user benefit."
+          })
+
+          yield* Effect.logInfo(
+            `${provider} finished with ${response.finishReason}. ` +
+            `outputTokens=${response.usage.outputTokens.total}`
+          )
+
+          return {
+            provider,
+            text: response.text
+          }
+        },
+        Effect.withExecutionPlan(draftsModel),
+        Effect.mapError((error) => AiWriterError.fromAiError(error))
+      )
+
+      return AiWriter.of({ draftAnnouncement })
+    })
+  ).pipe(
+    Layer.provide([OpenAiClientLayer, AnthropicClientLayer])
+  )
+}
+
+export const program = Effect.gen(function*() {
+  const writer = yield* AiWriter
+  const result = yield* writer.draftAnnouncement("Effect Cloud")
+  
+  yield* Effect.log(`Provider: ${result.provider}`)
+  yield* Effect.log(`Text: ${result.text}`)
+}).pipe(
+  Effect.provide(AiWriter.layer)
+)
+```
+
+## See also
+
+- [HTTP Client](/unstable/http-client) - Make API requests to AI providers

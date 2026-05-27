@@ -1,0 +1,226 @@
+---
+title: "Changelog"
+description: "Release notes and changelog for Effect v4"
+---
+
+<Note>
+Effect v4 is currently in beta. This changelog tracks changes across all beta releases.
+</Note>
+
+## Overview
+
+Effect v4 represents a major evolution of the Effect ecosystem with:
+
+- **Unified versioning** — All packages share a single version number
+- **Package consolidation** — Many separate packages merged into core `effect`
+- **Unstable modules** — New functionality under `effect/unstable/*` paths
+- **Performance improvements** — Rewritten fiber runtime with reduced memory overhead
+- **Better tree-shaking** — Aggressive bundle size optimization
+
+## Latest Beta Release: v4.0.0-beta.21
+
+### Fixes
+
+- Fixed `Stream.withSpan` options handling
+- Fixed `TxPubSub.publish` and `TxPubSub.publishAll` to require `Effect.Transaction` in return environment
+- Fixed MCP resource template parameter names resolving as `param0`, `param1`
+- Fixed `Schedule.reduce` to persist state updates for synchronous combine functions
+- Fixed `TupleWithRest` post-rest validation to check each tail index sequentially
+- Constrained `HttpServerRequest.source` to `object` type
+- Renamed `WorkflowEngine.layer` (breaking change)
+- Fixed `Workflow.executionId` to use schema `makeUnsafe`
+- Fixed spans never having parent span
+
+### New Features
+
+- Added `Effect.findFirst` and `Effect.findFirstFilter` for short-circuiting effectful searches
+
+## Recent Changes
+
+### v4.0.0-beta.20
+
+**Breaking Changes:**
+- Moved ChildProcess APIs into spawner service
+- Reverted `Config.withDefault` to v3 behavior (eager values)
+- Changed default ErrorReporter severity to Info
+
+**New Features:**
+- Added `ServiceMap.Key` type as base for `ServiceMap.Service` and `ServiceMap.Reference`
+- Added dedicated `AiError` metadata interfaces per reason
+- Added `Model.ModelName` service
+- Reverted `Effect.partition` to v3 behavior (accumulates failures, never fails)
+
+### v4.0.0-beta.19
+
+**Major Changes:**
+- Added transactional STM modules: `TxDeferred`, `TxPriorityQueue`, `TxPubSub`, `TxReentrantLock`, `TxSubscriptionRef`
+- Refactored transaction model: removed `Effect.atomic`/`Effect.atomicWith`, added `Effect.withTxState`
+- All Tx operations now return `Effect<A, E, Transaction>` requiring explicit `Effect.transaction(...)` at boundaries
+- Removed `TxRandom` module
+
+### v4.0.0-beta.18
+
+**Fixes:**
+- Fixed `Command.withGlobalFlags` type inference with mixed flag types
+- Ensured OpenAI JSON schemas for tool calls are properly transformed
+
+### v4.0.0-beta.17
+
+**Fixes:**
+- Fixed `Schema.encodeKeys` to encode non-remapped struct fields during encoding
+
+### v4.0.0-beta.16
+
+**New Features:**
+- Added `SchemaParser.makeOption` and `Schema.makeOption` for constructing schema values as `Option`
+- Added `OptionFromUndefinedOr` and `OptionFromNullishOr` schemas
+
+**Fixes:**
+- Fixed OpenAPI Multipart file upload schema generation
+
+### v4.0.0-beta.15
+
+**Fixes:**
+- Fixed `Stream.groupedWithin` to stop emitting empty arrays when schedule ticks fire while upstream is idle
+- Allowed creating standalone HTTP handlers from `HttpApiEndpoints`
+- Fixed atom node timeout cleanup
+- Refined `ExtractServices` to omit tool handler requirements when automatic tool resolution is disabled
+
+**Breaking Changes:**
+- Refactored unstable CLI global flags to command-scoped declarations
+- Removed `GlobalFlag.add`, `GlobalFlag.remove`, `GlobalFlag.clear`
+- Added `Command.withGlobalFlags(...)` as declaration API
+- Changed `GlobalFlag.setting` constructor to curried form
+
+### v4.0.0-beta.14
+
+**Changes:**
+- Made CLI global settings directly yieldable (now extends `ServiceMap.Reference`)
+- Renamed built-in globals:
+  - `GlobalFlag.CompletionsFlag` → `GlobalFlag.Completions`
+  - `GlobalFlag.LogLevelFlag` → `GlobalFlag.LogLevel`
+
+**Fixes:**
+- Fixed `OpenApi.fromApi` preserving multiple response content types for one status code
+
+### v4.0.0-beta.13
+
+**New Features:**
+- Exposed `NoSuchElementError` in stream-based `Atom.make` overloads
+- Updated unstable schema variant helpers to use array-based arguments
+- Added `Schedule.fixed` for fixed-interval scheduling
+
+**Fixes:**
+- Fixed request resolver batch fibers to run with request services
+- Fixed `Schedule.fixed` double-executing effects due to clock jitter
+- Used `identifier` annotation as expected message when available
+
+**CLI Improvements:**
+- Refactored built-in CLI options to use Effect services with `GlobalFlag`
+- Added visibility for built-in flags in help output
+- Enabled custom global flags via `GlobalFlag.add`
+
+### v4.0.0-beta.12
+
+**New Features:**
+- Added `Config.nested` combinator to scope config under named prefix
+- Added `Random.nextBoolean` for generating random booleans
+- Added `Graph.toMermaid` for generating Mermaid diagrams
+- Fixed `HttpClient.retryTransient` autocomplete
+- Fixed `Schema.encodeKeys` to work with `Schema.Class`
+- Fixed `Atom.searchParam` to decode initial URL values correctly
+- Added `Effect.annotateLogsScoped` for scoped log annotations
+
+**Fixes:**
+- Made fiber keepAlive setInterval evaluation lazy
+- Used cause annotations for detecting client aborts
+- Fixed LanguageModel stripping of resolved approval artifacts
+- Fixed JSON-RPC serialization for non-batched requests
+
+### v4.0.0-beta.11
+
+**CLI Enhancements:**
+- Added grouped subcommand support to `Command.withSubcommands`
+- Added `Command.withExamples` to attach usage examples
+- Added `Command.annotate` and `Command.annotateMerge` for command metadata
+- Added `Command.withShortDescription` for subcommand listings
+- Added `Command.withAlias` for command aliases
+
+**New Features:**
+- Added `Effect.validate` for validating collections while accumulating failures
+- Added `WorkflowEngine.layer` for in-memory workflow engine
+
+**Fixes:**
+- Fixed HashMap HAMT bit positions comparison
+- Fixed unstable HTTP Headers prototype methods in for..in iteration
+- Guarded keepAlive timer APIs for restricted runtimes
+- Fixed `Queue.collect` duplicating drained messages
+- Fixed `Schema.TupleWithRest` accepting inputs with missing post-rest elements
+- Added ErrorReporter module
+
+### v4.0.0-beta.10
+
+**New Features:**
+- Added `unstable/encoding` subpath export
+- Exported Effect do notation APIs (`Do`, `bindTo`, `bind`, `let`)
+- Added `Random.shuffle` to shuffle iterables with seeded randomness
+
+**Fixes:**
+- Fixed race in `Semaphore.take` where interruption could leak permits
+- Short-circuited `Fiber.joinAll` when called with empty iterable
+- Simplified HTTP logger disabling
+- Fixed `UrlParams.Input` usage in HTTP client and server
+- Renamed `HttpClient.retryTransient` option `mode` to `retryOn`
+
+## Migration from v3
+
+For detailed migration instructions, see:
+
+- [Migration Overview](/migration/overview)
+- [Services Migration](/migration/services)
+- [Error Handling Migration](/migration/error-handling)
+- [Schema v4 Migration](/migration/schema)
+
+## Full Changelog
+
+For the complete changelog with all beta releases and detailed change descriptions, see:
+
+- [GitHub Releases](https://github.com/Effect-TS/effect-smol/releases)
+- [CHANGELOG.md](https://github.com/Effect-TS/effect-smol/blob/main/packages/effect/CHANGELOG.md)
+
+## Versioning
+
+Effect v4 follows semantic versioning with special considerations for unstable modules:
+
+- **Stable modules** (e.g. `effect/Effect`, `effect/Schema`) follow strict semver
+- **Unstable modules** (e.g. `effect/unstable/http`) may receive breaking changes in minor releases
+- All packages in the Effect ecosystem share the same version number
+
+## Getting Updates
+
+To update to the latest beta:
+
+```bash
+npm install effect@beta
+# or
+pnpm add effect@beta
+# or
+yarn add effect@beta
+```
+
+Update platform and SQL packages to matching versions:
+
+```bash
+npm install @effect/platform-node@beta @effect/sql-pg@beta
+```
+
+## Reporting Issues
+
+Found a bug or have feedback on the beta? Please report it:
+
+- [GitHub Issues](https://github.com/Effect-TS/effect-smol/issues)
+- [Discord Community](https://discord.gg/effect-ts)
+
+<Tip>
+Beta feedback is invaluable! Share your migration experience and suggestions to help shape the final v4 release.
+</Tip>

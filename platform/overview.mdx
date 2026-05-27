@@ -1,0 +1,116 @@
+---
+title: Platform Packages Overview
+description: Platform-specific implementations for different JavaScript runtimes
+---
+
+The Effect ecosystem provides platform-specific packages that implement the abstractions defined in `@effect/platform` for different JavaScript runtimes. These packages allow you to write platform-independent code while seamlessly integrating with runtime-specific features.
+
+## Available Platforms
+
+Effect provides three platform-specific packages:
+
+### Node.js
+
+The `@effect/platform-node` package provides implementations for Node.js environments, including:
+- HTTP servers and clients
+- File system operations
+- Process spawning
+- WebSocket support
+- Redis integration
+- Worker threads
+
+[Learn more about the Node.js platform package →](/platform/node)
+
+### Browser
+
+The `@effect/platform-browser` package provides implementations for browser environments, including:
+- HTTP client using Fetch API
+- Local storage via KeyValueStore
+- WebSocket connections
+- Web Workers
+- Browser-specific APIs (Clipboard, Geolocation, Permissions)
+
+[Learn more about the Browser platform package →](/platform/browser)
+
+### Bun
+
+The `@effect/platform-bun` package provides implementations optimized for the Bun runtime, including:
+- High-performance HTTP servers
+- File system operations using Bun APIs
+- WebSocket support
+- Process spawning
+- Redis integration
+
+[Learn more about the Bun platform package →](/platform/bun)
+
+## Platform-Agnostic Code
+
+The key benefit of the platform packages is that you can write code using `@effect/platform` abstractions and swap implementations based on your target runtime:
+
+```typescript
+import { HttpClient } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+// Platform-agnostic code
+const fetchUser = (id: string) =>
+  HttpClient.get(`https://api.example.com/users/${id}`).pipe(
+    Effect.flatMap((_) => _.json),
+    Effect.scoped
+  )
+```
+
+Then provide the platform-specific implementation:
+
+```typescript
+// For Node.js
+import { NodeHttpClient } from "@effect/platform-node"
+
+Effect.runPromise(
+  fetchUser("123").pipe(
+    Effect.provide(NodeHttpClient.layer)
+  )
+)
+
+// For Browser
+import { BrowserHttpClient } from "@effect/platform-browser"
+
+Effect.runPromise(
+  fetchUser("123").pipe(
+    Effect.provide(BrowserHttpClient.layer)
+  )
+)
+```
+
+## Common Patterns
+
+### Layer Composition
+
+Platform packages provide layers that can be composed with your application layers:
+
+```typescript
+import { NodeHttpServer } from "@effect/platform-node"
+import { Layer } from "effect"
+
+const ServerLive = NodeHttpServer.layer.pipe(
+  Layer.provide(/* your dependencies */)
+)
+```
+
+### Runtime Services
+
+Each platform package includes a runtime layer with all essential services:
+
+```typescript
+import { NodeRuntime } from "@effect/platform-node"
+import { BunRuntime } from "@effect/platform-bun"
+import { BrowserRuntime } from "@effect/platform-browser"
+
+// Provides all platform services at once
+Effect.provide(program, NodeRuntime.layer)
+```
+
+## Next Steps
+
+- [Node.js Platform →](/platform/node)
+- [Browser Platform →](/platform/browser)
+- [Bun Platform →](/platform/bun)

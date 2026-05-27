@@ -1,0 +1,345 @@
+---
+title: Cache
+description: Mutable key-value caching with automatic TTL management and capacity limits
+---
+
+The `Cache` module provides a high-performance, effect-based caching solution with automatic time-to-live (TTL) management, capacity limits, and customizable lookup functions.
+
+## Overview
+
+A `Cache<Key, A, E, R>` is a mutable key-value store that:
+- Automatically populates missing entries using a lookup function
+- Enforces capacity limits with automatic eviction
+- Supports time-to-live (TTL) for cache entries
+- Integrates seamlessly with Effect for safe, composable caching
+- Handles concurrent access without race conditions
+
+## Creating Caches
+
+### Basic Cache
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key: string) => Effect.succeed(key.length)
+  })
+  
+  const length1 = yield* Cache.get(cache, "hello")
+  console.log(length1) // 5
+  
+  const length2 = yield* Cache.get(cache, "hello") // cached
+  console.log(length2) // 5
+})
+```
+
+### Cache with TTL
+
+```ts
+import { Cache, Effect } from "effect"
+
+const userCache = Effect.gen(function*() {
+  const cache = yield* Cache.make<number, User, Error>({
+    capacity: 1000,
+    lookup: (userId: number) => fetchUserFromDatabase(userId),
+    timeToLive: "5 minutes" // Entries expire after 5 minutes
+  })
+  
+  return cache
+})
+```
+
+### Cache with Error Handling
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number, string>({
+    capacity: 10,
+    lookup: (key: string) =>
+      key === "error"
+        ? Effect.fail("Lookup failed")
+        : Effect.succeed(key.length)
+  })
+  
+  // Successful lookup
+  const success = yield* Cache.get(cache, "test")
+  
+  // Failed lookup - error is cached temporarily
+  const failure = yield* Effect.exit(Cache.get(cache, "error"))
+})
+```
+
+## Advanced Cache Creation
+
+### Dynamic TTL with makeWith
+
+```ts
+import { Cache, Effect, Exit } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.makeWith<string, number, string>({
+    capacity: 100,
+    lookup: (key) =>
+      key === "fail"
+        ? Effect.fail("error")
+        : Effect.succeed(key.length),
+    timeToLive: (exit, key) => {
+      // Different TTL for successes vs failures
+      if (Exit.isFailure(exit)) {
+        return "1 minute" // Short TTL for errors
+      }
+      // Different TTL based on key
+      return key.startsWith("temp") ? "5 minutes" : "1 hour"
+    }
+  })
+  
+  return cache
+})
+```
+
+### TTL Based on Value
+
+```ts
+import { Cache, Effect, Exit } from "effect"
+
+const userCache = Effect.gen(function*() {
+  const cache = yield* Cache.makeWith<
+    number,
+    { id: number; active: boolean },
+    never
+  >({
+    capacity: 1000,
+    lookup: (id) => Effect.succeed({ id, active: id % 2 === 0 }),
+    timeToLive: (exit) => {
+      if (Exit.isSuccess(exit)) {
+        const user = exit.value
+        // Active users cached longer
+        return user.active ? "1 hour" : "5 minutes"
+      }
+      return "30 seconds"
+    }
+  })
+  
+  return cache
+})
+```
+
+## Using Caches
+
+### Get Values
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key) => Effect.succeed(key.length)
+  })
+  
+  // Get a value (populates if missing)
+  const value = yield* Cache.get(cache, "hello")
+  console.log(value) // 5
+})
+```
+
+### Invalidate Entries
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key) => Effect.succeed(Date.now())
+  })
+  
+  const time1 = yield* Cache.get(cache, "timestamp")
+  
+  // Invalidate specific key
+  yield* Cache.invalidate(cache, "timestamp")
+  
+  const time2 = yield* Cache.get(cache, "timestamp")
+  // time2 will be different (cache was invalidated)
+})
+```
+
+### Refresh Values
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key) => Effect.succeed(Date.now())
+  })
+  
+  // Get current value
+  const time1 = yield* Cache.get(cache, "timestamp")
+  
+  // Refresh - runs lookup and updates cache
+  yield* Cache.refresh(cache, "timestamp")
+  
+  // Get refreshed value
+  const time2 = yield* Cache.get(cache, "timestamp")
+})
+```
+
+### Set Values Manually
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key) => Effect.succeed(0)
+  })
+  
+  // Manually set a value
+  yield* Cache.set(cache, "count", 42)
+  
+  const value = yield* Cache.get(cache, "count")
+  console.log(value) // 42
+})
+```
+
+## Capacity and Eviction
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  // Cache with limited capacity
+  const cache = yield* Cache.make<number, string>({
+    capacity: 5, // Only holds 5 items
+    lookup: (n) => Effect.succeed(`value-${n}`)
+  })
+  
+  // Fill cache beyond capacity
+  for (let i = 0; i < 10; i++) {
+    yield* Cache.get(cache, i)
+  }
+  
+  // Oldest entries are evicted
+  const size = yield* Cache.size(cache)
+  console.log(size) // At most 5
+})
+```
+
+## Inspecting Cache State
+
+### Get Size
+
+```ts
+import { Cache, Effect } from "effect"
+
+const size = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key) => Effect.succeed(key.length)
+  })
+  
+  yield* Cache.get(cache, "hello")
+  yield* Cache.get(cache, "world")
+  
+  const currentSize = yield* Cache.size(cache)
+  console.log(currentSize) // 2
+})
+```
+
+### Get Keys
+
+```ts
+import { Cache, Effect } from "effect"
+
+const program = Effect.gen(function*() {
+  const cache = yield* Cache.make<string, number>({
+    capacity: 100,
+    lookup: (key) => Effect.succeed(key.length)
+  })
+  
+  yield* Cache.get(cache, "foo")
+  yield* Cache.get(cache, "bar")
+  
+  const keys = yield* Cache.keys(cache)
+  console.log(keys) // ["foo", "bar"]
+})
+```
+
+## Advanced Patterns
+
+### Cache with Complex Keys
+
+```ts
+import { Cache, Data, Effect } from "effect"
+
+// Use Data.Class for structural equality
+class UserId extends Data.Class<{ id: number }> {}
+
+const program = Effect.gen(function*() {
+  const userCache = yield* Cache.make<UserId, string>({
+    capacity: 1000,
+    lookup: (userId: UserId) =>
+      Effect.succeed(`User-${userId.id}`)
+  })
+  
+  const name = yield* Cache.get(
+    userCache,
+    new UserId({ id: 123 })
+  )
+  console.log(name) // "User-123"
+})
+```
+
+### Cache as a Service
+
+```ts
+import { Cache, Effect, Layer, ServiceMap } from "effect"
+
+class UserCache extends ServiceMap.Service<UserCache, {
+  getUser(id: number): Effect.Effect<User, Error>
+}>()("UserCache") {
+  static readonly layer = Layer.effect(
+    UserCache,
+    Effect.gen(function*() {
+      const cache = yield* Cache.make<number, User, Error>({
+        capacity: 1000,
+        lookup: (id) => fetchUserFromDatabase(id),
+        timeToLive: "5 minutes"
+      })
+      
+      return UserCache.of({
+        getUser: (id) => Cache.get(cache, id)
+      })
+    })
+  )
+}
+```
+
+## Best Practices
+
+1. **Choose appropriate capacity**: Set capacity based on memory constraints
+2. **Use TTL for frequently changing data**: Prevent stale data with appropriate TTL
+3. **Handle lookup errors**: Consider error caching strategy (short TTL for errors)
+4. **Monitor cache performance**: Track hit/miss ratios and adjust capacity
+5. **Use structural equality for complex keys**: Use Data.Class or similar for complex key types
+6. **Wrap in services for reusability**: Expose caches through service layers
+
+## Performance Considerations
+
+- Cache operations are lock-free and thread-safe
+- TTL is evaluated on access, not via background processes
+- Eviction happens synchronously when capacity is exceeded
+- Consider using separate caches for different data types to optimize capacity usage
+
+## Next Steps
+
+- Learn about [Effect](/core-modules/effect) for building effectful programs
+- Explore [Layer](/core-modules/layer) for service composition
+- Understand [Schedule](/core-modules/schedule) for cache refresh strategies

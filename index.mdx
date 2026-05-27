@@ -1,0 +1,147 @@
+---
+title: Introduction to Effect
+description: The missing standard library for TypeScript, for writing production-grade software
+---
+
+# Introduction to Effect
+
+Effect is a powerful TypeScript library designed to help you build production-grade software with confidence. It provides a comprehensive toolkit for error handling, concurrency, service architecture, schema validation, and observability.
+
+<Note>
+  Effect v4.0.0-beta is currently in beta. The API is stable, but minor changes may occur before the final release.
+</Note>
+
+## What is Effect?
+
+Effect is the missing standard library for TypeScript. It brings together patterns and tools that production applications need, but are typically scattered across many libraries or implemented from scratch in every project.
+
+At its core, Effect provides:
+
+- A type-safe effect system for managing side effects
+- Comprehensive error handling with typed errors
+- Built-in dependency injection through services and layers
+- First-class support for concurrency and resource management
+- Structured logging, distributed tracing, and metrics
+- Schema validation and serialization
+- HTTP client and server capabilities
+- CLI, process management, and much more
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Type-safe error handling" icon="shield-check">
+    Define and handle errors as typed values in your function signatures, eliminating unexpected runtime errors.
+  </Card>
+  
+  <Card title="Service architecture" icon="cubes">
+    Build modular applications with dependency injection using services and layers for better testability.
+  </Card>
+  
+  <Card title="Schema validation" icon="check-circle">
+    Runtime validation and serialization with compile-time type inference using the Schema module.
+  </Card>
+  
+  <Card title="Concurrency control" icon="bolt">
+    Manage concurrent operations with fibers, interruption handling, and resource safety built-in.
+  </Card>
+  
+  <Card title="Observability" icon="chart-line">
+    Structured logging, distributed tracing, and metrics collection out of the box.
+  </Card>
+  
+  <Card title="Resource management" icon="lock">
+    Automatic cleanup of resources using scopes and finalizers, preventing resource leaks.
+  </Card>
+  
+  <Card title="Streaming data" icon="water">
+    Process infinite or large datasets efficiently with the Stream module.
+  </Card>
+  
+  <Card title="HTTP APIs" icon="globe">
+    Build type-safe HTTP clients and servers with schema validation and OpenAPI documentation.
+  </Card>
+  
+  <Card title="Testing utilities" icon="flask">
+    Test Effect programs with built-in test helpers and service mocking capabilities.
+  </Card>
+  
+  <Card title="Batching & caching" icon="layer-group">
+    Automatically batch and cache external requests to improve performance.
+  </Card>
+  
+  <Card title="CLI applications" icon="terminal">
+    Build command-line tools with typed arguments, flags, and subcommands.
+  </Card>
+  
+  <Card title="AI integrations" icon="brain">
+    Provider-agnostic interface for language models with schema validation for structured outputs.
+  </Card>
+</CardGroup>
+
+## Why Effect?
+
+Building reliable software requires handling many concerns:
+
+**Error handling**: Traditional try-catch blocks don't communicate what errors a function might throw. Effect makes errors visible in type signatures.
+
+**Dependency management**: Global singletons and prop drilling make code hard to test. Effect's service layer provides clean dependency injection.
+
+**Resource safety**: Forgetting to close files, connections, or cancel timers leads to resource leaks. Effect's scope system handles cleanup automatically.
+
+**Observability**: Adding logging and tracing after the fact is painful. Effect has structured logging and tracing built into the core.
+
+**Concurrency**: Managing async operations, cancellation, and timeouts is error-prone. Effect provides fibers for structured concurrency.
+
+Effect brings all these capabilities together in a cohesive library, so you can focus on your business logic instead of reinventing infrastructure.
+
+## Quick example
+
+Here's a taste of what Effect code looks like:
+
+```typescript
+import { Effect, Schema } from "effect"
+
+// Define a custom error
+class UserLookupError extends Schema.TaggedErrorClass<UserLookupError>()("UserLookupError", {
+  userId: Schema.Number,
+  cause: Schema.Defect
+}) {}
+
+// Create an effect that might fail
+const fetchUser = Effect.fn("fetchUser")((userId: number) =>
+  Effect.tryPromise({
+    async try() {
+      const response = await fetch(`/api/users/${userId}`)
+      if (!response.ok) throw new Error(`Status ${response.status}`)
+      return response.json()
+    },
+    catch: (cause) => new UserLookupError({ userId, cause })
+  })
+)
+
+// Handle errors and provide fallback
+const userOrGuest = fetchUser(123).pipe(
+  Effect.catchTag("UserLookupError", (error) => 
+    Effect.succeed({ id: error.userId, name: "Guest" })
+  )
+)
+```
+
+This example demonstrates:
+
+- Type-safe error handling with custom error classes
+- Wrapping async operations with `Effect.tryPromise`
+- Error recovery with `Effect.catchTag`
+- All errors are visible in the type signature
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Effect and set up your project
+  </Card>
+  
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Build your first Effect program
+  </Card>
+</CardGroup>

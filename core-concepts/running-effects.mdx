@@ -1,0 +1,250 @@
+---
+title: Running Effects
+description: Learn how to run Effect programs with NodeRuntime.runMain, Layer.launch, and ManagedRuntime
+---
+
+## Running Effect Programs
+
+Effect programs are lazy descriptions of computations. To execute them, you need to "run" them using a runtime. Effect provides several ways to run programs depending on your use case.
+
+## NodeRuntime.runMain for Process Entrypoints
+
+Use `NodeRuntime.runMain` to run an Effect program as your process entrypoint. It installs signal handlers for graceful shutdown:
+
+```ts
+import { BunRuntime } from "@effect/platform-bun"
+import { NodeRuntime } from "@effect/platform-node"
+import { Effect, Layer } from "effect"
+
+const Worker = Layer.effectDiscard(Effect.gen(function*() {
+  yield* Effect.logInfo("Starting worker...")
+  yield* Effect.forkScoped(Effect.gen(function*() {
+    while (true) {
+      yield* Effect.logInfo("Working...")
+      yield* Effect.sleep("1 second")
+    }
+  }))
+}))
+
+const program = Layer.launch(Worker)
+
+// `runMain` installs SIGINT / SIGTERM handlers and interrupts running fibers
+// for graceful shutdown.
+NodeRuntime.runMain(program, {
+  // Disable automatic error reporting if your app already centralizes it.
+  disableErrorReporting: true
+})
+
+// Bun has the same API shape:
+BunRuntime.runMain(program, { disableErrorReporting: true })
+```
+
+### Features of runMain
+
+- Installs SIGINT and SIGTERM signal handlers
+- Interrupts all running fibers on shutdown signals
+- Provides graceful shutdown behavior
+- Optionally disables error reporting if you handle it elsewhere
+
+## Layer.launch for Long-Running Applications
+
+Use `Layer.launch` to convert a layer into a long-running Effect program. This is ideal when your entire application is represented as layers:
+
+```ts
+import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+import { Effect, Layer } from "effect"
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
+import { createServer } from "node:http"
+
+// Build a tiny HTTP app with a health-check endpoint.
+export const HealthRoutes = HttpRouter.use(Effect.fn(function*(router) {
+  yield* router.add("GET", "/health", Effect.succeed(HttpServerResponse.text("ok")))
+  yield* router.add("GET", "/healthz", Effect.succeed(HttpServerResponse.text("ok")))
+}))
+
+// Turn the routes into a server layer and provide the Node HTTP server backend.
+export const HttpServerLive = HttpRouter.serve(HealthRoutes).pipe(
+  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
+)
+
+// `Layer.launch` converts the layer into a long-running Effect<never>.
+export const main = Layer.launch(HttpServerLive)
+
+// This entrypoint pattern works well when the whole app is represented as
+// layers (for example: HTTP server + background workers).
+NodeRuntime.runMain(main)
+```
+
+### When to Use Layer.launch
+
+- Your application is composed entirely of layers
+- You have multiple long-running services (HTTP server, workers, etc.)
+- You want the application to run indefinitely until interrupted
+- You need all layer resources to be managed automatically
+
+## ManagedRuntime for Integration
+
+`ManagedRuntime` bridges Effect programs with non-Effect code. Build one runtime from your application Layer, then use it anywhere you need imperative execution:
+
+```ts
+import { Effect, Layer, ManagedRuntime, Ref, Schema, ServiceMap } from "effect"
+import { Hono } from "hono"
+
+class Todo extends Schema.Class<Todo>("Todo")({
+  id: Schema.Number,
+  title: Schema.String,
+  completed: Schema.Boolean
+}) {}
+
+class CreateTodoPayload extends Schema.Class<CreateTodoPayload>("CreateTodoPayload")({
+  title: Schema.String
+}) {}
+
+class TodoNotFound extends Schema.TaggedErrorClass<TodoNotFound>()("TodoNotFound", {
+  id: Schema.Number
+}) {}
+
+export class TodoRepo extends ServiceMap.Service<TodoRepo, {
+  readonly getAll: Effect.Effect<ReadonlyArray<Todo>>
+  getById(id: number): Effect.Effect<Todo, TodoNotFound>
+  create(payload: CreateTodoPayload): Effect.Effect<Todo>
+}>()("app/TodoRepo") {
+  static readonly layer = Layer.effect(
+    TodoRepo,
+    Effect.gen(function*() {
+      const store = new Map<number, Todo>()
+      const nextId = yield* Ref.make(1)
+
+      const getAll = Effect.gen(function*() {
+        return Array.from(store.values())
+      }).pipe(
+        Effect.withSpan("TodoRepo.getAll")
+      )
+
+      const getById = Effect.fn("TodoRepo.getById")(function*(id: number) {
+        const todo = store.get(id)
+        if (todo === undefined) {
+          return yield* new TodoNotFound({ id })
+        }
+        return todo
+      })
+
+      const create = Effect.fn("TodoRepo.create")(function*(payload: CreateTodoPayload) {
+        const id = yield* Ref.getAndUpdate(nextId, (current) => current + 1)
+        const todo = new Todo({ id, title: payload.title, completed: false })
+        store.set(id, todo)
+        return todo
+      })
+
+      return TodoRepo.of({ getAll, getById, create })
+    })
+  )
+}
+
+// Create a global memo map that can be shared across the app. This is necessary
+// for memoization to work correctly across ManagedRuntime instances.
+export const appMemoMap = Layer.makeMemoMapUnsafe()
+
+// Create a ManagedRuntime for the TodoRepo layer. This runtime can be shared
+// across all handlers in the app, and it will manage the lifecycle of the
+// TodoRepo service and any resources it uses.
+export const runtime = ManagedRuntime.make(TodoRepo.layer, {
+  memoMap: appMemoMap
+})
+
+export const app = new Hono()
+
+app.get("/todos", async (context) => {
+  const todos = await runtime.runPromise(
+    TodoRepo.use((repo) => repo.getAll)
+  )
+  return context.json(todos)
+})
+
+app.get("/todos/:id", async (context) => {
+  const id = Number(context.req.param("id"))
+  if (!Number.isFinite(id)) {
+    return context.json({ message: "Todo id must be a number" }, 400)
+  }
+
+  const todo = await runtime.runPromise(
+    TodoRepo.use((repo) => repo.getById(id)).pipe(
+      Effect.catchTag("TodoNotFound", () => Effect.succeed(null))
+    )
+  )
+
+  if (todo === null) {
+    return context.json({ message: "Todo not found" }, 404)
+  }
+
+  return context.json(todo)
+})
+
+const decodeCreateTodoPayload = Schema.decodeUnknownSync(CreateTodoPayload)
+
+app.post("/todos", async (context) => {
+  const body = await context.req.json()
+
+  let payload: CreateTodoPayload
+  try {
+    payload = decodeCreateTodoPayload(body)
+  } catch {
+    return context.json({ message: "Invalid request body" }, 400)
+  }
+
+  const todo = await runtime.runPromise(
+    TodoRepo.use((repo) => repo.create(payload))
+  )
+
+  return context.json(todo, 201)
+})
+
+// The same bridge pattern works for Express, Fastify, Koa, and other frameworks.
+// Use `runtime.runSync` for synchronous edges or `runtime.runCallback` for
+// callback-only APIs.
+
+// When the process receives a shutdown signal, dispose the runtime to clean up
+// any resources used by the TodoRepo service and its dependencies.
+const shutdown = () => {
+  void runtime.dispose()
+}
+
+process.once("SIGINT", shutdown)
+process.once("SIGTERM", shutdown)
+```
+
+### ManagedRuntime Methods
+
+- `runPromise(effect)` - Run an effect and return a Promise
+- `runSync(effect)` - Run an effect synchronously (must not be async)
+- `runCallback(effect, callback)` - Run an effect with a callback
+- `dispose()` - Clean up all resources
+
+### When to Use ManagedRuntime
+
+- Integrating Effect with non-Effect frameworks (Hono, Express, Fastify, etc.)
+- Running Effect code from event handlers or callbacks
+- You need a long-lived runtime with shared resources
+- You want manual control over runtime disposal
+
+### Important: Share MemoMaps
+
+When using `ManagedRuntime`, create a shared memo map to ensure layer memoization works correctly:
+
+```ts
+export const appMemoMap = Layer.makeMemoMapUnsafe()
+
+export const runtime = ManagedRuntime.make(AppLayer, {
+  memoMap: appMemoMap
+})
+```
+
+## Best Practices
+
+- Use `NodeRuntime.runMain` or `BunRuntime.runMain` for process entrypoints
+- Use `Layer.launch` when your entire app is represented as layers
+- Use `ManagedRuntime` for integrating Effect with external frameworks
+- Always dispose `ManagedRuntime` instances on shutdown
+- Share a single `MemoMap` across all `ManagedRuntime` instances
+- Use `runPromise` for async integration, `runSync` for sync edges
+- Install shutdown handlers (SIGINT/SIGTERM) to clean up resources gracefully

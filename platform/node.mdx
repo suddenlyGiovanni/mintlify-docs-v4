@@ -1,0 +1,267 @@
+---
+title: Platform Node
+description: Node.js platform implementations for Effect
+---
+
+The `@effect/platform-node` package provides Node.js-specific implementations for the abstractions defined in `@effect/platform`, allowing you to write platform-independent code that integrates smoothly with Node.js.
+
+## Installation
+
+```bash
+npm install @effect/platform-node
+```
+
+## Available Modules
+
+### HTTP
+
+#### NodeHttpServer
+
+Create HTTP servers using Node.js's built-in `http` and `https` modules:
+
+```typescript
+import { NodeHttpServer } from "@effect/platform-node"
+import { HttpServerResponse } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const app = HttpServerResponse.text("Hello from Node.js!")
+
+const server = NodeHttpServer.layer({ port: 3000 })
+
+Effect.runFork(
+  app.pipe(
+    Effect.provide(server)
+  )
+)
+```
+
+#### NodeHttpClient
+
+Make HTTP requests using Node.js's native client or Undici:
+
+```typescript
+import { NodeHttpClient } from "@effect/platform-node"
+import { HttpClient } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const program = HttpClient.get("https://api.github.com/users/Effect-TS").pipe(
+  Effect.flatMap((_) => _.json),
+  Effect.scoped,
+  Effect.provide(NodeHttpClient.layer)
+)
+```
+
+### File System
+
+#### NodeFileSystem
+
+Access the file system with Effect-based APIs:
+
+```typescript
+import { NodeFileSystem } from "@effect/platform-node"
+import { FileSystem } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const readConfig = Effect.gen(function* () {
+  const fs = yield* FileSystem
+  const content = yield* fs.readFileString("config.json")
+  return JSON.parse(content)
+}).pipe(
+  Effect.provide(NodeFileSystem.layer)
+)
+```
+
+### Process Management
+
+#### NodeChildProcessSpawner
+
+Spawn child processes with full Effect integration:
+
+```typescript
+import { NodeChildProcessSpawner } from "@effect/platform-node"
+import { ChildProcessSpawner } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const runCommand = Effect.gen(function* () {
+  const spawner = yield* ChildProcessSpawner
+  const result = yield* spawner.spawn("ls", ["-la"])
+  return result.stdout
+}).pipe(
+  Effect.provide(NodeChildProcessSpawner.layer)
+)
+```
+
+### Networking
+
+#### NodeSocket
+
+Create TCP socket clients:
+
+```typescript
+import { NodeSocket } from "@effect/platform-node"
+import * as Effect from "effect/Effect"
+import * as Stream from "effect/Stream"
+
+const client = NodeSocket.makeNet({
+  host: "localhost",
+  port: 8080
+})
+```
+
+#### NodeSocketServer
+
+Create TCP socket servers:
+
+```typescript
+import { NodeSocketServer } from "@effect/platform-node"
+
+const server = NodeSocketServer.layerNet({
+  port: 8080
+}, (socket) => 
+  // Handle socket connection
+  Effect.succeed(void 0)
+)
+```
+
+### Redis
+
+#### NodeRedis
+
+Integrate with Redis using ioredis:
+
+```typescript
+import { NodeRedis } from "@effect/platform-node"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const redis = yield* NodeRedis.Redis
+  yield* redis.set("key", "value")
+  const value = yield* redis.get("key")
+  return value
+}).pipe(
+  Effect.provide(NodeRedis.layer({
+    host: "localhost",
+    port: 6379
+  }))
+)
+```
+
+### Workers
+
+#### NodeWorker
+
+Use Node.js Worker Threads:
+
+```typescript
+import { NodeWorker } from "@effect/platform-node"
+import { Worker } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const pool = NodeWorker.layerManager({
+  size: 4,
+  spawn: () => new Worker("./worker.js")
+})
+```
+
+### Streams
+
+#### NodeStream
+
+Convert between Node.js streams and Effect streams:
+
+```typescript
+import { NodeStream } from "@effect/platform-node"
+import * as Stream from "effect/Stream"
+import * as fs from "node:fs"
+
+const readStream = fs.createReadStream("file.txt")
+const effectStream = NodeStream.fromReadable(
+  () => readStream,
+  (error) => new Error(String(error))
+)
+```
+
+### Utilities
+
+#### NodePath
+
+Path manipulation utilities:
+
+```typescript
+import { NodePath } from "@effect/platform-node"
+import { Path } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const path = yield* Path
+  return path.join("/home", "user", "documents")
+}).pipe(
+  Effect.provide(NodePath.layer)
+)
+```
+
+#### NodeTerminal
+
+Terminal/TTY operations:
+
+```typescript
+import { NodeTerminal } from "@effect/platform-node"
+import { Terminal } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const terminal = yield* Terminal
+  yield* terminal.display("Hello, terminal!\n")
+}).pipe(
+  Effect.provide(NodeTerminal.layer)
+)
+```
+
+## Complete Runtime
+
+### NodeRuntime
+
+The `NodeRuntime` provides all Node.js services in a single layer:
+
+```typescript
+import { NodeRuntime } from "@effect/platform-node"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  // All Node.js services are available
+  const fs = yield* FileSystem
+  const http = yield* HttpClient
+  // ... use any Node.js service
+})
+
+Effect.runFork(
+  program.pipe(
+    Effect.provide(NodeRuntime.layer)
+  )
+)
+```
+
+## Configuration
+
+Many services accept configuration options:
+
+```typescript
+import { NodeHttpServer } from "@effect/platform-node"
+
+const server = NodeHttpServer.layer({
+  port: 3000,
+  host: "0.0.0.0",
+  // Additional options...
+})
+```
+
+## Requirements
+
+- Node.js 18.0.0 or higher
+- Effect 4.0.0 or higher
+
+## Next Steps
+
+- [Platform Overview →](/platform/overview)
+- [Browser Platform →](/platform/browser)
+- [Bun Platform →](/platform/bun)

@@ -1,0 +1,289 @@
+---
+title: Platform Bun
+description: Bun runtime platform implementations for Effect
+---
+
+The `@effect/platform-bun` package provides Bun-specific implementations for the abstractions defined in `@effect/platform`, optimized for the high-performance Bun runtime.
+
+## Installation
+
+```bash
+bun add @effect/platform-bun
+```
+
+## Available Modules
+
+### HTTP
+
+#### BunHttpServer
+
+Create high-performance HTTP servers using Bun's native server:
+
+```typescript
+import { BunHttpServer } from "@effect/platform-bun"
+import { HttpServerResponse } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const app = HttpServerResponse.text("Hello from Bun!")
+
+const server = BunHttpServer.layer({ port: 3000 })
+
+Effect.runFork(
+  app.pipe(
+    Effect.provide(server)
+  )
+)
+```
+
+#### BunHttpClient
+
+Make HTTP requests using Bun's optimized fetch:
+
+```typescript
+import { BunHttpClient } from "@effect/platform-bun"
+import { HttpClient } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const program = HttpClient.get("https://api.github.com/users/Effect-TS").pipe(
+  Effect.flatMap((_) => _.json),
+  Effect.scoped,
+  Effect.provide(BunHttpClient.layer)
+)
+```
+
+### File System
+
+#### BunFileSystem
+
+Access the file system with Bun's fast file I/O:
+
+```typescript
+import { BunFileSystem } from "@effect/platform-bun"
+import { FileSystem } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const readConfig = Effect.gen(function* () {
+  const fs = yield* FileSystem
+  const content = yield* fs.readFileString("config.json")
+  return JSON.parse(content)
+}).pipe(
+  Effect.provide(BunFileSystem.layer)
+)
+```
+
+### Process Management
+
+#### BunChildProcessSpawner
+
+Spawn child processes with Bun:
+
+```typescript
+import { BunChildProcessSpawner } from "@effect/platform-bun"
+import { ChildProcessSpawner } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const runCommand = Effect.gen(function* () {
+  const spawner = yield* ChildProcessSpawner
+  const result = yield* spawner.spawn("ls", ["-la"])
+  return result.stdout
+}).pipe(
+  Effect.provide(BunChildProcessSpawner.layer)
+)
+```
+
+### Networking
+
+#### BunSocket
+
+Create TCP socket clients using Bun's socket API:
+
+```typescript
+import { BunSocket } from "@effect/platform-bun"
+import * as Effect from "effect/Effect"
+
+const client = BunSocket.makeNet({
+  host: "localhost",
+  port: 8080
+})
+```
+
+#### BunSocketServer
+
+Create TCP socket servers:
+
+```typescript
+import { BunSocketServer } from "@effect/platform-bun"
+
+const server = BunSocketServer.layerNet({
+  port: 8080
+}, (socket) => 
+  // Handle socket connection
+  Effect.succeed(void 0)
+)
+```
+
+### Redis
+
+#### BunRedis
+
+Integrate with Redis:
+
+```typescript
+import { BunRedis } from "@effect/platform-bun"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const redis = yield* BunRedis.Redis
+  yield* redis.set("key", "value")
+  const value = yield* redis.get("key")
+  return value
+}).pipe(
+  Effect.provide(BunRedis.layer({
+    host: "localhost",
+    port: 6379
+  }))
+)
+```
+
+### Workers
+
+#### BunWorker
+
+Use Bun's Worker API:
+
+```typescript
+import { BunWorker } from "@effect/platform-bun"
+import { Worker } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const pool = BunWorker.layerManager({
+  size: 4,
+  spawn: () => new Worker("./worker.ts")
+})
+```
+
+### Streams
+
+#### BunStream
+
+Convert between Bun streams and Effect streams:
+
+```typescript
+import { BunStream } from "@effect/platform-bun"
+import * as Stream from "effect/Stream"
+
+const file = Bun.file("data.txt")
+const effectStream = BunStream.fromReadable(
+  () => file.stream(),
+  (error) => new Error(String(error))
+)
+```
+
+### Utilities
+
+#### BunPath
+
+Path manipulation utilities:
+
+```typescript
+import { BunPath } from "@effect/platform-bun"
+import { Path } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const path = yield* Path
+  return path.join("/home", "user", "documents")
+}).pipe(
+  Effect.provide(BunPath.layer)
+)
+```
+
+#### BunTerminal
+
+Terminal/TTY operations:
+
+```typescript
+import { BunTerminal } from "@effect/platform-bun"
+import { Terminal } from "@effect/platform"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const terminal = yield* Terminal
+  yield* terminal.display("Hello from Bun!\n")
+}).pipe(
+  Effect.provide(BunTerminal.layer)
+)
+```
+
+## Complete Runtime
+
+### BunRuntime
+
+The `BunRuntime` provides all Bun services in a single layer:
+
+```typescript
+import { BunRuntime } from "@effect/platform-bun"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  // All Bun services are available
+  const fs = yield* FileSystem
+  const http = yield* HttpClient
+  // ... use any Bun service
+})
+
+Effect.runFork(
+  program.pipe(
+    Effect.provide(BunRuntime.layer)
+  )
+)
+```
+
+## Performance Benefits
+
+Bun provides significant performance improvements over Node.js in many scenarios:
+
+- **Faster startup time**: Bun starts applications much faster
+- **Optimized file I/O**: File operations are significantly faster
+- **Built-in bundler**: No need for separate build tools in many cases
+- **Native TypeScript**: Direct TypeScript execution without transpilation
+
+## Configuration
+
+Many services accept configuration options:
+
+```typescript
+import { BunHttpServer } from "@effect/platform-bun"
+
+const server = BunHttpServer.layer({
+  port: 3000,
+  hostname: "0.0.0.0",
+  development: false,
+  // Additional Bun-specific options
+})
+```
+
+## Requirements
+
+- Bun 1.0.0 or higher
+- Effect 4.0.0 or higher
+
+## Migration from Node.js
+
+Migrating from `@effect/platform-node` to `@effect/platform-bun` is straightforward:
+
+```typescript
+// Before (Node.js)
+import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+
+// After (Bun)
+import { BunHttpServer, BunRuntime } from "@effect/platform-bun"
+
+// Most code remains the same, just swap the imports!
+```
+
+## Next Steps
+
+- [Platform Overview →](/platform/overview)
+- [Node.js Platform →](/platform/node)
+- [Browser Platform →](/platform/browser)

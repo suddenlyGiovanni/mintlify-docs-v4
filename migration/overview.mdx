@@ -1,0 +1,115 @@
+---
+title: "Migration Overview"
+description: "Guide to migrating from Effect v3 to Effect v4"
+---
+
+<Note>
+Effect v4 is currently in beta. APIs may change between beta releases. This guide will evolve as the beta progresses and community feedback is incorporated.
+</Note>
+
+## Background
+
+Effect v4 is a major release with structural and organizational changes across the ecosystem. The core programming model — `Effect`, `Layer`, `Schema`, `Stream`, etc. — remains the same, but how packages are organized, versioned, and imported has changed significantly.
+
+## Unified Versioning
+
+All Effect ecosystem packages now share a **single version number** and are released together. In v3, packages were versioned independently (e.g. `effect@3.x`, `@effect/platform@0.x`, `@effect/sql@0.x`), making compatibility between packages difficult to track.
+
+**In v4:** If you use `effect@4.0.0-beta.0`, the matching SQL package is `@effect/sql-pg@4.0.0-beta.0`.
+
+## Package Consolidation
+
+Many previously separate packages have been merged into the core `effect` package. Functionality from `@effect/platform`, `@effect/rpc`, `@effect/cluster`, and others now lives directly in `effect`.
+
+### Packages That Remain Separate
+
+Packages that remain separate are platform-specific, provider-specific, or technology-specific:
+
+- **`@effect/platform-*`** — Platform packages (Node, Browser, Bun)
+- **`@effect/sql-*`** — SQL driver packages (PostgreSQL, MySQL, SQLite, etc.)
+- **`@effect/ai-*`** — AI provider packages (OpenAI, Anthropic, etc.)
+- **`@effect/opentelemetry`** — OpenTelemetry integration
+- **`@effect/atom-*`** — Framework-specific atom bindings (React, Vue, Solid)
+- **`@effect/vitest`** — Vitest testing utilities
+
+These packages must be bumped to matching v4 beta versions alongside `effect`.
+
+## Unstable Module System
+
+v4 introduces **unstable modules** under `effect/unstable/*` import paths. These modules may receive breaking changes in minor releases, while modules outside `unstable/` follow strict semver.
+
+### Unstable Modules
+
+Unstable modules include:
+
+- `ai` — Language model integrations
+- `cli` — Command-line interface tools
+- `cluster` — Distributed systems primitives
+- `devtools` — Development and debugging tools
+- `eventlog` — Event logging
+- `http` — HTTP client and server
+- `httpapi` — HTTP API definitions
+- `jsonschema` — JSON Schema utilities
+- `observability` — Tracing and metrics
+- `persistence` — Data persistence layers
+- `process` — Process management
+- `reactivity` — Reactive programming
+- `rpc` — Remote procedure calls
+- `schema` — Data validation and transformation
+- `socket` — WebSocket support
+- `sql` — SQL query builders
+- `workflow` — Workflow orchestration
+- `workers` — Worker thread management
+
+As these modules stabilize, they graduate to the top-level `effect/*` namespace.
+
+## Performance and Bundle Size
+
+The fiber runtime has been rewritten for reduced memory overhead and faster execution. The core `effect` package supports aggressive tree-shaking:
+
+- **Minimal Effect program:** ~6.3 KB (minified + gzipped)
+- **With Schema:** ~15 KB (minified + gzipped)
+
+## Migration Guides
+
+### Core Changes
+
+<CardGroup cols={2}>
+  <Card title="Services" icon="tag" href="/migration/services">
+    `Context.Tag` → `ServiceMap.Service` migration
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/migration/error-handling">
+    `catch*` renamings and new error handling patterns
+  </Card>
+  <Card title="Schema v4" icon="shapes" href="/migration/schema">
+    Schema validation and transformation changes
+  </Card>
+</CardGroup>
+
+### Additional Migration Topics
+
+For complete migration coverage, see the source documentation:
+
+- **Cause:** Flattened structure
+- **Forking:** Renamed combinators and new options
+- **Effect Subtyping:** Yieldable interface
+- **Fiber Keep-Alive:** Automatic process lifetime management
+- **Layer Memoization:** Across `Effect.provide` calls
+- **FiberRef:** `FiberRef` → `ServiceMap.Reference`
+- **Runtime:** `Runtime<R>` removed
+- **Scope:** Scope handling changes
+- **Equality:** Equality comparison updates
+
+## Getting Started
+
+To begin migrating your Effect v3 application:
+
+1. Update all Effect packages to matching v4 beta versions
+2. Review the [Services migration guide](/migration/services) for the most common breaking change
+3. Update error handling patterns per the [error handling guide](/migration/error-handling)
+4. If using Schema extensively, review the [Schema v4 guide](/migration/schema)
+5. Test thoroughly, as some runtime behaviors have changed
+
+<Warning>
+As v4 is in beta, expect API changes between releases. Pin to specific beta versions in production if needed.
+</Warning>

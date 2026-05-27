@@ -1,0 +1,408 @@
+---
+title: MySQL
+description: MySQL database client for Effect
+---
+
+The `@effect/sql-mysql2` package provides a MySQL client built on the `mysql2` library with full Effect integration.
+
+## Installation
+
+```bash
+npm install @effect/sql-mysql2 mysql2
+```
+
+## Quick Start
+
+```typescript
+import { MysqlClient } from "@effect/sql-mysql2"
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+import * as Redacted from "effect/Redacted"
+
+const MysqlLive = MysqlClient.layer({
+  host: "localhost",
+  port: 3306,
+  database: "mydb",
+  username: "root",
+  password: Redacted.make("password")
+})
+
+const program = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const users = yield* sql`SELECT * FROM users`
+  return users
+}).pipe(
+  Effect.provide(MysqlLive)
+)
+
+Effect.runPromise(program).then(console.log)
+```
+
+## Configuration
+
+### Connection Options
+
+```typescript
+import { MysqlClient } from "@effect/sql-mysql2"
+import * as Duration from "effect/Duration"
+import * as Redacted from "effect/Redacted"
+
+const MysqlLive = MysqlClient.layer({
+  // Connection details
+  host: "localhost",
+  port: 3306,
+  database: "mydb",
+  username: "root",
+  password: Redacted.make("password"),
+  
+  // Or use a connection URL
+  url: Redacted.make("mysql://user:pass@localhost:3306/mydb"),
+  
+  // SSL configuration
+  ssl: {
+    rejectUnauthorized: false
+  },
+  
+  // Connection pool settings
+  maxConnections: 10,
+  minConnections: 2,
+  connectionTTL: Duration.minutes(5),
+  idleTimeout: Duration.seconds(30),
+  connectTimeout: Duration.seconds(5),
+  
+  // Character set
+  charset: "utf8mb4",
+  
+  // Timezone
+  timezone: "Z", // UTC
+  
+  // Name transformation
+  transformResultNames: (str) => str,
+  transformQueryNames: (str) => str
+})
+```
+
+### Connection from Config
+
+```typescript
+import { MysqlClient } from "@effect/sql-mysql2"
+import * as Config from "effect/Config"
+
+const MysqlLive = MysqlClient.layerConfig({
+  host: Config.string("MYSQL_HOST"),
+  port: Config.number("MYSQL_PORT"),
+  database: Config.string("MYSQL_DATABASE"),
+  username: Config.string("MYSQL_USERNAME"),
+  password: Config.redacted("MYSQL_PASSWORD")
+})
+```
+
+## Querying
+
+### Basic Queries
+
+```typescript
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const getAllUsers = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`SELECT * FROM users`
+})
+
+const getUserById = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const users = yield* sql`SELECT * FROM users WHERE id = ${id}`
+    return users[0]
+  })
+
+const insertUser = (name: string, email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      INSERT INTO users (name, email)
+      VALUES (${name}, ${email})
+    `
+    return result.insertId
+  })
+```
+
+### Batch Inserts
+
+```typescript
+const insertMany = (users: Array<{ name: string; email: string }>) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`INSERT INTO users ${sql.insert(users)}`
+  })
+```
+
+### Update and Delete
+
+```typescript
+const updateUser = (id: number, name: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      UPDATE users 
+      SET name = ${name}
+      WHERE id = ${id}
+    `
+    return result.affectedRows
+  })
+
+const deleteUser = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`DELETE FROM users WHERE id = ${id}`
+    return result.affectedRows
+  })
+```
+
+## Transactions
+
+### Basic Transaction
+
+```typescript
+const transferFunds = (from: number, to: number, amount: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    
+    yield* sql`
+      UPDATE accounts 
+      SET balance = balance - ${amount} 
+      WHERE id = ${from}
+    `
+    
+    yield* sql`
+      UPDATE accounts 
+      SET balance = balance + ${amount} 
+      WHERE id = ${to}
+    `
+  }).pipe(
+    sql.withTransaction
+  )
+```
+
+### Transaction Isolation Levels
+
+```typescript
+import { MysqlClient } from "@effect/sql-mysql2"
+
+const readCommitted = Effect.gen(function* () {
+  const mysql = yield* MysqlClient
+  
+  yield* mysql`SET TRANSACTION ISOLATION LEVEL READ COMMITTED`
+  
+  yield* Effect.gen(function* () {
+    // Your transaction logic here
+  }).pipe(mysql.withTransaction)
+})
+```
+
+## MySQL-Specific Features
+
+### ON DUPLICATE KEY UPDATE
+
+```typescript
+const upsertUser = (id: number, name: string, email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      INSERT INTO users (id, name, email)
+      VALUES (${id}, ${name}, ${email})
+      ON DUPLICATE KEY UPDATE
+        name = VALUES(name),
+        email = VALUES(email)
+    `
+  })
+```
+
+### JSON Support
+
+MySQL 5.7+ supports JSON columns:
+
+```typescript
+const insertDocument = (data: unknown) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      INSERT INTO documents (data)
+      VALUES (${JSON.stringify(data)})
+    `
+  })
+
+const queryJson = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT * FROM documents
+    WHERE JSON_EXTRACT(data, '$.name') = 'John'
+  `
+})
+```
+
+### Full-Text Search
+
+```typescript
+const searchArticles = (query: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT *, MATCH(title, content) AGAINST(${query} IN NATURAL LANGUAGE MODE) as score
+      FROM articles
+      WHERE MATCH(title, content) AGAINST(${query} IN NATURAL LANGUAGE MODE)
+      ORDER BY score DESC
+    `
+  })
+```
+
+### Working with Dates
+
+```typescript
+const getRecentUsers = (days: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM users
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${days} DAY)
+    `
+  })
+```
+
+## Prepared Statements
+
+MySQL2 automatically uses prepared statements for parameterized queries:
+
+```typescript
+const getUserByEmail = (email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    // Automatically uses prepared statement
+    return yield* sql`SELECT * FROM users WHERE email = ${email}`
+  })
+```
+
+## Migrations
+
+```typescript
+import { MysqlMigrator } from "@effect/sql-mysql2"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+
+const MigratorLive = MysqlMigrator.layer({
+  loader: MysqlMigrator.fromFileSystem("./migrations"),
+  schemaDirectory: "sql/migrations"
+})
+
+const migrate = Effect.gen(function* () {
+  const migrator = yield* MysqlMigrator
+  yield* migrator.run()
+}).pipe(
+  Effect.provide(Layer.merge(MysqlLive, MigratorLive))
+)
+```
+
+Create migration files:
+
+```sql
+-- 001_create_users.sql
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+## Schema Definition
+
+```typescript
+import * as SqlSchema from "effect/unstable/sql/SqlSchema"
+import * as Schema from "effect/Schema"
+
+class User extends SqlSchema.make({
+  id: Schema.Int.pipe(Schema.primaryKey),
+  name: Schema.String,
+  email: Schema.String,
+  createdAt: SqlSchema.DateTimeInsert
+}) {}
+
+const createUser = (user: typeof User.jsonInsert.Type) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`INSERT INTO users ${sql.insert(user)}`
+  })
+```
+
+## Connection Pooling
+
+The MySQL client automatically manages connection pooling:
+
+```typescript
+const MysqlLive = MysqlClient.layer({
+  host: "localhost",
+  maxConnections: 10, // Max concurrent connections
+  minConnections: 2,  // Min idle connections
+  connectionTTL: Duration.minutes(5) // Max connection lifetime
+})
+```
+
+## Error Handling
+
+```typescript
+import { SqlError } from "effect/unstable/sql/SqlError"
+import * as Effect from "effect/Effect"
+
+const safeInsert = (name: string, email: string) =>
+  insertUser(name, email).pipe(
+    Effect.catchTag("SqlError", (error) => {
+      if (error.message.includes("Duplicate entry")) {
+        return Effect.fail({ _tag: "UserExists" as const })
+      }
+      return Effect.fail({ _tag: "DatabaseError" as const, error })
+    })
+  )
+```
+
+## Best Practices
+
+1. **Use utf8mb4**: For full Unicode support including emoji
+2. **Enable strict mode**: Use `sql_mode=STRICT_TRANS_TABLES`
+3. **Index properly**: Add indexes for frequently queried columns
+4. **Use transactions**: For related operations
+5. **Connection pooling**: Configure based on your load
+6. **Parameterize queries**: Always use template literals for safety
+
+## Performance Tips
+
+```typescript
+// Use LIMIT for large result sets
+const getPagedUsers = (page: number, size: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM users
+      LIMIT ${size} OFFSET ${page * size}
+    `
+  })
+
+// Use indexes
+const createIndexes = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`CREATE INDEX idx_email ON users(email)`
+  yield* sql`CREATE INDEX idx_created_at ON users(created_at)`
+})
+```
+
+## Requirements
+
+- MySQL 5.7+ or MariaDB 10.2+
+- Node.js 18+
+- Effect 4.0.0 or higher
+
+## Next Steps
+
+- [SQL Overview →](/sql/overview)
+- [PostgreSQL →](/sql/postgres)
+- [SQLite →](/sql/sqlite)

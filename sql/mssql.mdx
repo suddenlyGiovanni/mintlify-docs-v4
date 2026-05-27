@@ -1,0 +1,514 @@
+---
+title: Microsoft SQL Server
+description: SQL Server database client for Effect
+---
+
+The `@effect/sql-mssql` package provides a Microsoft SQL Server client built on the `tedious` library with full Effect integration.
+
+## Installation
+
+```bash
+npm install @effect/sql-mssql tedious
+```
+
+## Quick Start
+
+```typescript
+import { MssqlClient } from "@effect/sql-mssql"
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+import * as Redacted from "effect/Redacted"
+
+const MssqlLive = MssqlClient.layer({
+  server: "localhost",
+  database: "mydb",
+  authentication: {
+    type: "default",
+    options: {
+      userName: "sa",
+      password: "YourStrong@Passw0rd"
+    }
+  }
+})
+
+const program = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const users = yield* sql`SELECT * FROM users`
+  return users
+}).pipe(
+  Effect.provide(MssqlLive)
+)
+
+Effect.runPromise(program).then(console.log)
+```
+
+## Configuration
+
+### Connection Options
+
+```typescript
+import { MssqlClient } from "@effect/sql-mssql"
+import * as Duration from "effect/Duration"
+import * as Redacted from "effect/Redacted"
+
+const MssqlLive = MssqlClient.layer({
+  // Server connection
+  server: "localhost",
+  port: 1433,
+  database: "mydb",
+  
+  // Authentication
+  authentication: {
+    type: "default",
+    options: {
+      userName: "sa",
+      password: "YourStrong@Passw0rd"
+    }
+  },
+  
+  // Or use Windows authentication
+  // authentication: {
+  //   type: "ntlm",
+  //   options: {
+  //     domain: "DOMAIN",
+  //     userName: "user",
+  //     password: "password"
+  //   }
+  // },
+  
+  // Or use Azure Active Directory
+  // authentication: {
+  //   type: "azure-active-directory-password",
+  //   options: {
+  //     userName: "user@domain.com",
+  //     password: "password"
+  //   }
+  // },
+  
+  // Encryption
+  options: {
+    encrypt: true, // Required for Azure
+    trustServerCertificate: false,
+    enableArithAbort: true
+  },
+  
+  // Connection pool
+  maxConnections: 10,
+  minConnections: 2,
+  connectionTTL: Duration.minutes(5),
+  idleTimeout: Duration.seconds(30),
+  connectTimeout: Duration.seconds(15),
+  
+  // Request timeout
+  requestTimeout: Duration.seconds(30),
+  
+  // Name transformation
+  transformResultNames: (str) => str,
+  transformQueryNames: (str) => str
+})
+```
+
+### Azure SQL Database
+
+```typescript
+const AzureSqlLive = MssqlClient.layer({
+  server: "myserver.database.windows.net",
+  database: "mydb",
+  authentication: {
+    type: "azure-active-directory-password",
+    options: {
+      userName: "user@domain.com",
+      password: "password"
+    }
+  },
+  options: {
+    encrypt: true,
+    trustServerCertificate: false
+  }
+})
+```
+
+## Querying
+
+### Basic Queries
+
+```typescript
+import * as Effect from "effect/Effect"
+import * as Sql from "effect/unstable/sql"
+
+const getAllUsers = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`SELECT * FROM users`
+})
+
+const getUserById = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const users = yield* sql`SELECT * FROM users WHERE id = ${id}`
+    return users[0]
+  })
+
+const insertUser = (name: string, email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      INSERT INTO users (name, email)
+      OUTPUT INSERTED.*
+      VALUES (${name}, ${email})
+    `
+    return result[0]
+  })
+```
+
+### OUTPUT Clause
+
+SQL Server uses `OUTPUT` instead of `RETURNING`:
+
+```typescript
+const updateUser = (id: number, name: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      UPDATE users
+      SET name = ${name}
+      OUTPUT INSERTED.*
+      WHERE id = ${id}
+    `
+    return result[0]
+  })
+
+const deleteUser = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    const result = yield* sql`
+      DELETE FROM users
+      OUTPUT DELETED.*
+      WHERE id = ${id}
+    `
+    return result[0]
+  })
+```
+
+## Transactions
+
+### Basic Transaction
+
+```typescript
+const transferFunds = (from: number, to: number, amount: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    
+    yield* sql`
+      UPDATE accounts 
+      SET balance = balance - ${amount} 
+      WHERE id = ${from}
+    `
+    
+    yield* sql`
+      UPDATE accounts 
+      SET balance = balance + ${amount} 
+      WHERE id = ${to}
+    `
+  }).pipe(
+    sql.withTransaction
+  )
+```
+
+### Transaction Isolation Levels
+
+```typescript
+const isolatedTransaction = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  yield* sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`
+  
+  yield* Effect.gen(function* () {
+    // Your transaction logic
+  }).pipe(sql.withTransaction)
+})
+```
+
+## Stored Procedures
+
+### Calling Stored Procedures
+
+```typescript
+import { Procedure } from "@effect/sql-mssql"
+import * as Effect from "effect/Effect"
+
+const callProcedure = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  const result = yield* Procedure.call("GetUserById", {
+    params: {
+      id: 123
+    }
+  })
+  
+  return result
+})
+```
+
+### With Output Parameters
+
+```typescript
+import { Procedure, Parameter } from "@effect/sql-mssql"
+import { MssqlTypes } from "@effect/sql-mssql"
+
+const callWithOutput = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  
+  const result = yield* Procedure.call("CreateUser", {
+    params: {
+      name: "Alice",
+      email: "alice@example.com"
+    },
+    output: {
+      userId: Parameter.output(MssqlTypes.Int)
+    }
+  })
+  
+  return result.output.userId
+})
+```
+
+## SQL Server-Specific Features
+
+### MERGE Statement
+
+```typescript
+const upsertUser = (id: number, name: string, email: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      MERGE users AS target
+      USING (SELECT ${id} AS id, ${name} AS name, ${email} AS email) AS source
+      ON target.id = source.id
+      WHEN MATCHED THEN
+        UPDATE SET name = source.name, email = source.email
+      WHEN NOT MATCHED THEN
+        INSERT (id, name, email)
+        VALUES (source.id, source.name, source.email);
+    `
+  })
+```
+
+### JSON Support (SQL Server 2016+)
+
+```typescript
+const insertJson = (data: unknown) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`
+      INSERT INTO documents (data)
+      VALUES (${JSON.stringify(data)})
+    `
+  })
+
+const queryJson = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`
+    SELECT * FROM documents
+    WHERE JSON_VALUE(data, '$.name') = 'John'
+  `
+})
+
+// Parse JSON result
+const getJsonData = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  const results = yield* sql`
+    SELECT JSON_QUERY(data, '$') as jsonData
+    FROM documents
+    WHERE id = 1
+  `
+  return JSON.parse(results[0].jsonData)
+})
+```
+
+### Window Functions
+
+```typescript
+const getPagedUsers = (page: number, size: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT *
+      FROM (
+        SELECT *, ROW_NUMBER() OVER (ORDER BY id) AS row_num
+        FROM users
+      ) AS numbered
+      WHERE row_num BETWEEN ${page * size + 1} AND ${(page + 1) * size}
+    `
+  })
+```
+
+### Temporal Tables (SQL Server 2016+)
+
+```typescript
+// Create temporal table
+const createTemporal = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  yield* sql`
+    CREATE TABLE users (
+      id INT PRIMARY KEY,
+      name NVARCHAR(100),
+      email NVARCHAR(100),
+      ValidFrom DATETIME2 GENERATED ALWAYS AS ROW START,
+      ValidTo DATETIME2 GENERATED ALWAYS AS ROW END,
+      PERIOD FOR SYSTEM_TIME (ValidFrom, ValidTo)
+    )
+    WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.users_history))
+  `
+})
+
+// Query historical data
+const getUserHistory = (id: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM users
+      FOR SYSTEM_TIME ALL
+      WHERE id = ${id}
+      ORDER BY ValidFrom
+    `
+  })
+```
+
+### Full-Text Search
+
+```typescript
+const searchArticles = (query: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT *, KEY_TBL.RANK
+      FROM articles
+      INNER JOIN FREETEXTTABLE(articles, *, ${query}) AS KEY_TBL
+        ON articles.id = KEY_TBL.[KEY]
+      ORDER BY KEY_TBL.RANK DESC
+    `
+  })
+```
+
+## Migrations
+
+```typescript
+import { MssqlMigrator } from "@effect/sql-mssql"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+
+const MigratorLive = MssqlMigrator.layer({
+  loader: MssqlMigrator.fromFileSystem("./migrations"),
+  schemaDirectory: "sql/migrations"
+})
+
+const migrate = Effect.gen(function* () {
+  const migrator = yield* MssqlMigrator
+  yield* migrator.run()
+}).pipe(
+  Effect.provide(Layer.merge(MssqlLive, MigratorLive))
+)
+```
+
+Create migration files:
+
+```sql
+-- 001_create_users.sql
+CREATE TABLE users (
+  id INT IDENTITY(1,1) PRIMARY KEY,
+  name NVARCHAR(255) NOT NULL,
+  email NVARCHAR(255) UNIQUE NOT NULL,
+  created_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX idx_email ON users(email);
+```
+
+## Data Types
+
+### Working with NVARCHAR
+
+Always use `NVARCHAR` for Unicode support:
+
+```typescript
+const insertUnicode = (name: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    yield* sql`INSERT INTO users (name) VALUES (${name})`
+  })
+```
+
+### Date and Time
+
+```typescript
+const getRecentUsers = (days: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM users
+      WHERE created_at >= DATEADD(day, -${days}, GETUTCDATE())
+    `
+  })
+```
+
+## Error Handling
+
+```typescript
+import { SqlError } from "effect/unstable/sql/SqlError"
+import * as Effect from "effect/Effect"
+
+const safeInsert = (name: string, email: string) =>
+  insertUser(name, email).pipe(
+    Effect.catchTag("SqlError", (error) => {
+      if (error.message.includes("UNIQUE KEY constraint")) {
+        return Effect.fail({ _tag: "UserExists" as const })
+      }
+      return Effect.fail({ _tag: "DatabaseError" as const, error })
+    })
+  )
+```
+
+## Best Practices
+
+1. **Use NVARCHAR**: For proper Unicode support
+2. **Enable encryption**: Especially for Azure SQL
+3. **Use OUTPUT clause**: Instead of separate SELECT after INSERT
+4. **Parameterize queries**: Always use template literals
+5. **Set isolation levels**: Explicitly set when needed
+6. **Index strategically**: Add indexes for frequently queried columns
+7. **Use stored procedures**: For complex operations
+
+## Performance Tips
+
+```typescript
+// Use NOLOCK for read-only queries (use with caution)
+const fastRead = Effect.gen(function* () {
+  const sql = yield* Sql.SqlClient
+  return yield* sql`SELECT * FROM users WITH (NOLOCK)`
+})
+
+// Use pagination efficiently
+const efficientPaging = (page: number, size: number) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql.SqlClient
+    return yield* sql`
+      SELECT * FROM users
+      ORDER BY id
+      OFFSET ${page * size} ROWS
+      FETCH NEXT ${size} ROWS ONLY
+    `
+  })
+```
+
+## Requirements
+
+- SQL Server 2012 or higher
+- Azure SQL Database supported
+- Node.js 18+
+- Effect 4.0.0 or higher
+
+## Next Steps
+
+- [SQL Overview →](/sql/overview)
+- [PostgreSQL →](/sql/postgres)
+- [MySQL →](/sql/mysql)

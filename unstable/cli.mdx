@@ -1,0 +1,293 @@
+---
+title: "CLI"
+description: "Build command-line applications with typed arguments, flags, and subcommands"
+---
+
+## Overview
+
+The `effect/unstable/cli` modules provide tools for building robust command-line applications with:
+
+- Type-safe arguments and flags
+- Automatic help text generation
+- Subcommand composition
+- Built-in validation and error messages
+
+## Quick start
+
+```typescript
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Effect } from "effect"
+import { Argument, Command, Flag } from "effect/unstable/cli"
+
+const greet = Command.make(
+  "greet",
+  {
+    name: Argument.string("name"),
+    loud: Flag.boolean("loud")
+  },
+  Effect.fnUntraced(function*({ name, loud }) {
+    const greeting = `Hello, ${name}!`
+    yield* Effect.log(loud ? greeting.toUpperCase() : greeting)
+  })
+).pipe(
+  Command.withDescription("Greet someone")
+)
+
+greet.pipe(
+  Command.run({ version: "1.0.0" }),
+  Effect.provide(NodeServices.layer),
+  NodeRuntime.runMain
+)
+```
+
+## Defining flags
+
+### Boolean flags
+
+```typescript
+const verbose = Flag.boolean("verbose").pipe(
+  Flag.withAlias("v"),
+  Flag.withDescription("Enable verbose output")
+)
+```
+
+### String flags
+
+```typescript
+const output = Flag.string("output").pipe(
+  Flag.withAlias("o"),
+  Flag.withDescription("Output file path"),
+  Flag.withDefault("./output.txt")
+)
+```
+
+### Choice flags
+
+```typescript
+const logLevel = Flag.choice("log-level", ["debug", "info", "warn", "error"]).pipe(
+  Flag.withDescription("Set the log level"),
+  Flag.withDefault("info")
+)
+```
+
+### Integer flags
+
+```typescript
+const port = Flag.integer("port").pipe(
+  Flag.withAlias("p"),
+  Flag.withDescription("Port to listen on"),
+  Flag.withDefault(3000)
+)
+```
+
+## Defining arguments
+
+```typescript
+const filename = Argument.string("filename").pipe(
+  Argument.withDescription("File to process")
+)
+
+const count = Argument.integer("count").pipe(
+  Argument.withDescription("Number of items")
+)
+```
+
+## Creating commands
+
+### Simple command
+
+```typescript
+const deploy = Command.make(
+  "deploy",
+  {
+    environment: Argument.string("environment"),
+    dryRun: Flag.boolean("dry-run")
+  },
+  Effect.fnUntraced(function*({ environment, dryRun }) {
+    yield* Effect.log(`Deploying to ${environment}...`)
+    if (dryRun) {
+      yield* Effect.log("Dry run mode - no changes made")
+    }
+  })
+).pipe(
+  Command.withDescription("Deploy the application")
+)
+```
+
+### Command with examples
+
+```typescript
+const build = Command.make(
+  "build",
+  { watch: Flag.boolean("watch") },
+  buildHandler
+).pipe(
+  Command.withDescription("Build the project"),
+  Command.withExamples([
+    {
+      command: "build --watch",
+      description: "Build and watch for changes"
+    }
+  ])
+)
+```
+
+## Subcommands
+
+```typescript
+const tasks = Command.make("tasks", {
+  workspace: Flag.string("workspace").pipe(
+    Flag.withDefault("personal")
+  )
+}).pipe(
+  Command.withDescription("Manage tasks")
+)
+
+const create = Command.make(
+  "create",
+  {
+    title: Argument.string("title"),
+    priority: Flag.choice("priority", ["low", "normal", "high"]).pipe(
+      Flag.withDefault("normal")
+    )
+  },
+  Effect.fnUntraced(function*({ title, priority }) {
+    const root = yield* tasks
+    yield* Effect.log(`Creating task "${title}" in ${root.workspace}`)
+  })
+)
+
+const list = Command.make(
+  "list",
+  {},
+  Effect.fnUntraced(function*() {
+    const root = yield* tasks
+    yield* Effect.log(`Listing tasks in ${root.workspace}`)
+  })
+)
+
+// Compose into final command
+const app = tasks.pipe(
+  Command.withSubcommands([create, list])
+)
+```
+
+## Accessing parent command options
+
+Subcommands can access parent command input:
+
+```typescript
+const subcommand = Command.make(
+  "subcommand",
+  { flag: Flag.boolean("flag") },
+  Effect.fnUntraced(function*({ flag }) {
+    // Access parent command
+    const parent = yield* parentCommand
+    
+    yield* Effect.log(`Parent option: ${parent.workspace}`)
+    yield* Effect.log(`Subcommand flag: ${flag}`)
+  })
+)
+```
+
+## Running commands
+
+```typescript
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
+
+command.pipe(
+  Command.run({
+    version: "1.0.0",
+    name: "myapp"
+  }),
+  Effect.provide(NodeServices.layer),
+  NodeRuntime.runMain
+)
+```
+
+## Complete example
+
+```typescript
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Console, Effect } from "effect"
+import { Argument, Command, Flag } from "effect/unstable/cli"
+
+const workspace = Flag.string("workspace").pipe(
+  Flag.withAlias("w"),
+  Flag.withDescription("Workspace to operate on"),
+  Flag.withDefault("personal")
+)
+
+const tasks = Command.make("tasks", {
+  workspace,
+  verbose: Flag.boolean("verbose").pipe(
+    Flag.withAlias("v"),
+    Flag.withDescription("Print diagnostic output")
+  )
+}).pipe(
+  Command.withDescription("Track and manage tasks")
+)
+
+const create = Command.make(
+  "create",
+  {
+    title: Argument.string("title").pipe(
+      Argument.withDescription("Task title")
+    ),
+    priority: Flag.choice("priority", ["low", "normal", "high"]).pipe(
+      Flag.withDescription("Priority for the new task"),
+      Flag.withDefault("normal")
+    )
+  },
+  Effect.fnUntraced(function*({ title, priority }) {
+    const root = yield* tasks
+
+    if (root.verbose) {
+      yield* Console.log(`workspace=${root.workspace} action=create`)
+    }
+
+    yield* Console.log(`Created "${title}" in ${root.workspace} with ${priority} priority`)
+  })
+).pipe(
+  Command.withDescription("Create a task"),
+  Command.withExamples([
+    {
+      command: "tasks create \"Ship 4.0\" --priority high",
+      description: "Create a high-priority task"
+    }
+  ])
+)
+
+const list = Command.make(
+  "list",
+  {
+    status: Flag.choice("status", ["open", "done", "all"]).pipe(
+      Flag.withDescription("Filter tasks by status"),
+      Flag.withDefault("open")
+    )
+  },
+  Effect.fnUntraced(function*({ status }) {
+    const root = yield* tasks
+
+    if (root.verbose) {
+      yield* Console.log(`workspace=${root.workspace} action=list`)
+    }
+
+    yield* Console.log(`Listing ${status} tasks in ${root.workspace}`)
+  })
+).pipe(
+  Command.withDescription("List tasks"),
+  Command.withAlias("ls")
+)
+
+tasks.pipe(
+  Command.withSubcommands([create, list]),
+  Command.run({ version: "1.0.0" }),
+  Effect.provide(NodeServices.layer),
+  NodeRuntime.runMain
+)
+```
+
+## See also
+
+- [Process](/unstable/process) - Run child processes from CLI apps

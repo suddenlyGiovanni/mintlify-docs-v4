@@ -1,0 +1,104 @@
+---
+title: "Unstable Modules Overview"
+description: "Explore experimental and preview features in the Effect unstable namespace"
+---
+
+## What are unstable modules?
+
+The `effect/unstable` namespace contains experimental features and APIs that are actively being developed and refined. These modules provide access to powerful capabilities that may undergo breaking changes as the Effect team gathers feedback and iterates on the design.
+
+## Why use unstable modules?
+
+Unstable modules give you early access to:
+
+- New features before they stabilize
+- Cutting-edge functionality for modern application patterns
+- Powerful abstractions that are being refined based on community feedback
+
+While these APIs may change between releases, they are production-ready and used in real applications today.
+
+## Available modules
+
+<CardGroup cols={2}>
+  <Card title="HTTP Client" icon="globe" href="/unstable/http-client">
+    Make HTTP requests with retries, timeouts, and request transformation
+  </Card>
+  
+  <Card title="HTTP Server" icon="server" href="/unstable/http-server">
+    Build HTTP servers with routing and middleware
+  </Card>
+  
+  <Card title="HTTP API" icon="code" href="/unstable/http-api">
+    Create schema-first, type-safe APIs with automatic validation
+  </Card>
+  
+  <Card title="CLI" icon="terminal" href="/unstable/cli">
+    Build command-line applications with typed arguments and flags
+  </Card>
+  
+  <Card title="Process" icon="microchip" href="/unstable/process">
+    Manage child processes and command pipelines
+  </Card>
+  
+  <Card title="AI" icon="brain" href="/unstable/ai">
+    Work with language models and AI providers
+  </Card>
+  
+  <Card title="Cluster" icon="network-wired" href="/unstable/cluster">
+    Build distributed applications with entities
+  </Card>
+  
+  <Card title="RPC" icon="arrows-left-right" href="/unstable/rpc">
+    Define type-safe remote procedure calls
+  </Card>
+  
+  <Card title="Workflow" icon="diagram-project" href="/unstable/workflow">
+    Orchestrate durable, long-running workflows
+  </Card>
+  
+  <Card title="Observability" icon="chart-line" href="/unstable/observability">
+    Export telemetry with OTLP and Prometheus
+  </Card>
+  
+  <Card title="Persistence" icon="database" href="/unstable/persistence">
+    Work with key-value stores, caches, and queues
+  </Card>
+  
+  <Card title="Socket" icon="plug" href="/unstable/socket">
+    Handle WebSocket and stream-based connections
+  </Card>
+  
+  <Card title="Workers" icon="gears" href="/unstable/workers">
+    Spawn and communicate with web workers
+  </Card>
+</CardGroup>
+
+## Import paths
+
+Unstable modules use the `effect/unstable` import path:
+
+```typescript
+import { HttpClient } from "effect/unstable/http"
+import { Command, Flag } from "effect/unstable/cli"
+import { LanguageModel } from "effect/unstable/ai"
+```
+
+## Stability considerations
+
+<Warning>
+APIs in the unstable namespace may change between minor versions. When upgrading Effect, review the changelog for breaking changes in unstable modules.
+</Warning>
+
+<Tip>
+Many unstable modules follow similar patterns to stable Effect APIs. If you're familiar with services, layers, and error handling in Effect, you'll feel right at home.
+</Tip>
+
+## Migration to stable
+
+As unstable modules mature, they may:
+
+- Graduate to the main Effect package
+- Move to dedicated packages (like `@effect/platform`)
+- Undergo final API refinements before stabilization
+
+The Effect team announces these transitions in release notes and provides migration guides when breaking changes occur.

@@ -1,0 +1,251 @@
+---
+title: "Observability"
+description: "Export telemetry with OTLP and Prometheus for monitoring Effect applications"
+---
+
+## Overview
+
+The `effect/unstable/observability` modules provide lightweight observability integrations for:
+
+- OTLP (OpenTelemetry Protocol) tracing and logging
+- Prometheus metrics
+- Custom metric exporters
+- Telemetry resource configuration
+
+## OTLP setup
+
+Configure OTLP tracing and logging:
+
+```typescript
+import { Layer } from "effect"
+import { Otlp, OtlpExporter, OtlpTracer, OtlpLogger } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/unstable/http"
+
+const OtlpLayer = Otlp.layer({
+  endpoint: "http://localhost:4318",
+  serviceName: "my-app",
+  serviceVersion: "1.0.0"
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+const ObservabilityLayer = Layer.mergeAll(
+  OtlpTracer.layer,
+  OtlpLogger.layer
+).pipe(
+  Layer.provide(OtlpLayer)
+)
+```
+
+## Configuring the OTLP exporter
+
+```typescript
+const exporter = OtlpExporter.make({
+  url: "http://localhost:4318/v1/traces",
+  headers: {
+    "Authorization": "Bearer token"
+  },
+  compression: "gzip"
+})
+```
+
+## Tracing
+
+Effect automatically generates spans when using `Effect.fn`:
+
+```typescript
+import { Effect } from "effect"
+
+const processOrder = Effect.fn("processOrder")(function*(orderId: string) {
+  // This function automatically creates a span named "processOrder"
+  yield* Effect.log(`Processing order ${orderId}`)
+  
+  // Add custom attributes to the span
+  yield* Effect.annotateCurrentSpan({
+    orderId,
+    priority: "high"
+  })
+  
+  // Nested Effect.fn calls create child spans
+  yield* validateOrder(orderId)
+  yield* chargePayment(orderId)
+})
+```
+
+## Logging with OTLP
+
+Logs are automatically exported when using `OtlpLogger`:
+
+```typescript
+import { Effect } from "effect"
+
+// Logs are sent to OTLP endpoint
+yield* Effect.log("Order processed successfully")
+yield* Effect.logError("Payment failed")
+yield* Effect.logWarning("Low inventory")
+
+// Add structured log annotations
+yield* Effect.annotateLogs({
+  orderId: "order-123",
+  userId: "user-456"
+})
+```
+
+## Prometheus metrics
+
+Expose Prometheus metrics endpoint:
+
+```typescript
+import { PrometheusMetrics } from "effect/unstable/observability"
+import { HttpRouter } from "effect/unstable/http"
+import { Layer } from "effect"
+
+const MetricsLayer = PrometheusMetrics.layer({ port: 9090 })
+
+// Or integrate with existing HTTP server
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/metrics", PrometheusMetrics.handler)
+)
+```
+
+## Custom metrics
+
+```typescript
+import { Effect, Metric } from "effect"
+
+const requestCounter = Metric.counter("http_requests_total", {
+  description: "Total HTTP requests"
+})
+
+const requestDuration = Metric.histogram("http_request_duration_seconds", {
+  description: "HTTP request duration"
+})
+
+const processRequest = Effect.gen(function*() {
+  yield* requestCounter.increment()
+  
+  const start = Date.now()
+  yield* handleRequest()
+  const duration = (Date.now() - start) / 1000
+  
+  yield* requestDuration.record(duration)
+})
+```
+
+## Resource attributes
+
+Configure resource attributes for telemetry:
+
+```typescript
+import { OtlpResource } from "effect/unstable/observability"
+
+const resource = OtlpResource.make({
+  "service.name": "my-app",
+  "service.version": "1.0.0",
+  "deployment.environment": "production",
+  "host.name": "server-01"
+})
+```
+
+## Log level filtering
+
+Configure log levels for production:
+
+```typescript
+import { Logger, LogLevel } from "effect"
+
+const ProductionLogger = Logger.minimumLogLevel(LogLevel.Info)
+
+const layer = ObservabilityLayer.pipe(
+  Layer.provide(ProductionLogger)
+)
+```
+
+## Batch configuration
+
+Configure batching for better performance:
+
+```typescript
+const OtlpLayer = Otlp.layer({
+  endpoint: "http://localhost:4318",
+  serviceName: "my-app",
+  batchConfig: {
+    maxBatchSize: 512,
+    maxQueueSize: 2048,
+    scheduledDelay: "5 seconds"
+  }
+})
+```
+
+## Complete example
+
+```typescript
+import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+import { Effect, Layer, Metric } from "effect"
+import { HttpRouter } from "effect/unstable/http"
+import { Otlp, OtlpTracer, OtlpLogger, PrometheusMetrics } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/unstable/http"
+import { createServer } from "node:http"
+
+// Define metrics
+const requestCounter = Metric.counter("http_requests_total", {
+  description: "Total HTTP requests"
+})
+
+// Configure OTLP
+const OtlpLayer = Otlp.layer({
+  endpoint: "http://localhost:4318",
+  serviceName: "my-api",
+  serviceVersion: "1.0.0"
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+const ObservabilityLayer = Layer.mergeAll(
+  OtlpTracer.layer,
+  OtlpLogger.layer
+).pipe(
+  Layer.provide(OtlpLayer)
+)
+
+// Define routes
+const routes = HttpRouter.empty.pipe(
+  HttpRouter.get("/", Effect.gen(function*() {
+    yield* requestCounter.increment()
+    yield* Effect.log("Request received")
+    return HttpRouter.text("Hello World")
+  })),
+  HttpRouter.get("/metrics", PrometheusMetrics.handler)
+)
+
+// Start server with observability
+const server = HttpRouter.serve(routes).pipe(
+  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 })),
+  Layer.provide(ObservabilityLayer)
+)
+
+Layer.launch(server).pipe(NodeRuntime.runMain)
+```
+
+## Using with @effect/opentelemetry
+
+For more advanced OpenTelemetry features, use `@effect/opentelemetry`:
+
+```typescript
+import { NodeSdk } from "@effect/opentelemetry"
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
+
+const NodeSdkLayer = NodeSdk.layer(() => ({
+  resource: {
+    serviceName: "my-app"
+  },
+  spanProcessor: new BatchSpanProcessor(
+    new OTLPTraceExporter({ url: "http://localhost:4318/v1/traces" })
+  )
+}))
+```
+
+## See also
+
+- [HTTP Server](/unstable/http-server) - Add observability to HTTP servers

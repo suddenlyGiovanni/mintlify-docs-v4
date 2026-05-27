@@ -1,0 +1,245 @@
+---
+title: "HTTP Client"
+description: "Make HTTP requests with the Effect HttpClient module"
+---
+
+## Overview
+
+The `HttpClient` module from `effect/unstable/http` provides a powerful, composable way to make HTTP requests with built-in support for retries, error handling, and request transformation.
+
+## Basic usage
+
+Import the HttpClient module and use it in your services:
+
+```typescript
+import { Effect, Layer, Schedule, ServiceMap } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+
+class ApiService extends ServiceMap.Service<ApiService, {
+  fetchData(): Effect.Effect<Data, ApiError>
+}>()("app/ApiService") {
+  static readonly layer = Layer.effect(
+    ApiService,
+    Effect.gen(function*() {
+      // Access the HttpClient service
+      const client = yield* HttpClient.HttpClient
+      
+      const fetchData = Effect.fn("ApiService.fetchData")(function*() {
+        const response = yield* client.get("/api/data")
+        const data = yield* HttpClientResponse.schemaBodyJson(DataSchema)(response)
+        return data
+      })
+      
+      return ApiService.of({ fetchData })
+    })
+  ).pipe(
+    Layer.provide(FetchHttpClient.layer)
+  )
+}
+```
+
+## Configuring the client
+
+Apply middleware to customize client behavior:
+
+```typescript
+const client = (yield* HttpClient.HttpClient).pipe(
+  // Add a base URL to all requests
+  HttpClient.mapRequest(
+    HttpClientRequest.prependUrl("https://api.example.com")
+  ),
+  // Set Accept header for JSON responses
+  HttpClient.mapRequest(HttpClientRequest.acceptJson),
+  // Fail on non-2xx status codes
+  HttpClient.filterStatusOk,
+  // Retry transient errors with exponential backoff
+  HttpClient.retryTransient({
+    schedule: Schedule.exponential(100),
+    times: 3
+  })
+)
+```
+
+## Making requests
+
+### Simple GET request
+
+```typescript
+const response = yield* client.get("/users/123")
+const user = yield* HttpClientResponse.schemaBodyJson(UserSchema)(response)
+```
+
+### POST with JSON body
+
+```typescript
+const response = yield* client.post("/users", {
+  body: HttpBody.json({ name: "Alice", email: "alice@example.com" })
+})
+```
+
+### Building complex requests
+
+Use `HttpClientRequest` for fine-grained control:
+
+```typescript
+const response = yield* HttpClientRequest.post("/api/data").pipe(
+  HttpClientRequest.setUrlParams({ filter: "active" }),
+  HttpClientRequest.bodyJsonUnsafe({ items: [1, 2, 3] }),
+  HttpClientRequest.setHeader("X-Custom-Header", "value"),
+  client.execute
+)
+```
+
+## Decoding responses
+
+### JSON with Schema validation
+
+```typescript
+import { Schema } from "effect"
+
+class User extends Schema.Class<User>("User")({
+  id: Schema.Number,
+  name: Schema.String,
+  email: Schema.String
+}) {}
+
+const user = yield* client.get("/users/123").pipe(
+  Effect.flatMap(HttpClientResponse.schemaBodyJson(User))
+)
+```
+
+### Plain text
+
+```typescript
+const text = yield* client.get("/status").pipe(
+  Effect.flatMap(HttpClientResponse.text)
+)
+```
+
+### Raw response
+
+```typescript
+const response = yield* client.get("/data")
+// Access headers, status, etc.
+console.log(response.status)
+console.log(response.headers)
+```
+
+## Error handling
+
+```typescript
+const result = yield* client.get("/users/123").pipe(
+  Effect.flatMap(HttpClientResponse.schemaBodyJson(User)),
+  Effect.mapError((error) => new MyApiError({ cause: error }))
+)
+```
+
+## Request options
+
+Pass additional options to individual requests:
+
+```typescript
+const response = yield* client.get("/search", {
+  urlParams: { q: "effect", limit: "10" },
+  headers: { "X-Api-Key": apiKey },
+  timeout: 5000
+})
+```
+
+## Using different HTTP implementations
+
+### Fetch-based (browser and Node.js)
+
+```typescript
+import { FetchHttpClient } from "effect/unstable/http"
+
+const layer = MyService.layer.pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+```
+
+### Node-specific client
+
+```typescript
+import { NodeHttpClient } from "@effect/platform-node"
+
+const layer = MyService.layer.pipe(
+  Layer.provide(NodeHttpClient.layer)
+)
+```
+
+## Complete example
+
+```typescript
+import { Effect, Layer, Schedule, Schema, ServiceMap } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+
+class Todo extends Schema.Class<Todo>("Todo")({
+  userId: Schema.Number,
+  id: Schema.Number,
+  title: Schema.String,
+  completed: Schema.Boolean
+}) {}
+
+export class JsonPlaceholder extends ServiceMap.Service<JsonPlaceholder, {
+  getTodo(id: number): Effect.Effect<Todo, JsonPlaceholderError>
+  createTodo(todo: Omit<Todo, "id">): Effect.Effect<Todo, JsonPlaceholderError>
+}>()("app/JsonPlaceholder") {
+  static readonly layer = Layer.effect(
+    JsonPlaceholder,
+    Effect.gen(function*() {
+      const client = (yield* HttpClient.HttpClient).pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.prependUrl("https://jsonplaceholder.typicode.com")
+        ),
+        HttpClient.mapRequest(HttpClientRequest.acceptJson),
+        HttpClient.filterStatusOk,
+        HttpClient.retryTransient({
+          schedule: Schedule.exponential(100),
+          times: 3
+        })
+      )
+
+      const getTodo = Effect.fn("JsonPlaceholder.getTodo")(function*(id: number) {
+        yield* Effect.annotateCurrentSpan({ id })
+
+        const todo = yield* client.get(`/todos/${id}`, {
+          urlParams: { format: "json" }
+        }).pipe(
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(Todo)),
+          Effect.mapError((cause) => new JsonPlaceholderError({ cause }))
+        )
+
+        return todo
+      })
+
+      const createTodo = Effect.fn("JsonPlaceholder.createTodo")(function*(todo: Omit<Todo, "id">) {
+        yield* Effect.annotateCurrentSpan({ title: todo.title })
+
+        const createdTodo = yield* HttpClientRequest.post("/todos").pipe(
+          HttpClientRequest.setUrlParams({ format: "json" }),
+          HttpClientRequest.bodyJsonUnsafe(todo),
+          client.execute,
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(Todo)),
+          Effect.mapError((cause) => new JsonPlaceholderError({ cause }))
+        )
+
+        return createdTodo
+      })
+
+      return JsonPlaceholder.of({ getTodo, createTodo })
+    })
+  ).pipe(
+    Layer.provide(FetchHttpClient.layer)
+  )
+}
+
+export class JsonPlaceholderError extends Schema.TaggedErrorClass<JsonPlaceholderError>()("JsonPlaceholderError", {
+  cause: Schema.Defect
+}) {}
+```
+
+## See also
+
+- [HTTP Server](/unstable/http-server) - Build HTTP servers
+- [HTTP API](/unstable/http-api) - Create schema-first APIs

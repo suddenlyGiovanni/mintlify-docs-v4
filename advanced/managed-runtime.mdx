@@ -1,0 +1,307 @@
+---
+title: ManagedRuntime
+description: Bridge Effect programs with external frameworks and non-Effect code using ManagedRuntime
+---
+
+## Overview
+
+`ManagedRuntime` is the bridge between Effect programs and non-Effect code. It allows you to run Effect code from external frameworks, APIs, or legacy systems while maintaining all the benefits of Effect's service architecture, resource management, and error handling.
+
+Use `ManagedRuntime` when you need to:
+- Integrate Effect into existing web frameworks (Express, Hono, Fastify, Koa)
+- Run Effect code from event handlers or callbacks
+- Bridge Effect services with imperative APIs
+- Maintain proper resource lifecycle in non-Effect environments
+
+## Creating a ManagedRuntime
+
+Create a `ManagedRuntime` from your application's Layer. This runtime manages the lifecycle of all services and resources:
+
+```typescript
+import { Layer, ManagedRuntime } from "effect"
+
+// Create a global memo map for proper memoization
+export const appMemoMap = Layer.makeMemoMapUnsafe()
+
+// Create a runtime from your app layer
+export const runtime = ManagedRuntime.make(AppLayer, {
+  memoMap: appMemoMap
+})
+```
+
+## Using with Web Frameworks
+
+### Hono Example
+
+Here's a complete example integrating Effect with Hono:
+
+```typescript
+import { Effect, Layer, ManagedRuntime, Ref, Schema, ServiceMap } from "effect"
+import { Hono } from "hono"
+
+class Todo extends Schema.Class<Todo>("Todo")({
+  id: Schema.Number,
+  title: Schema.String,
+  completed: Schema.Boolean
+}) {}
+
+class CreateTodoPayload extends Schema.Class<CreateTodoPayload>("CreateTodoPayload")({
+  title: Schema.String
+}) {}
+
+class TodoNotFound extends Schema.TaggedErrorClass<TodoNotFound>()("TodoNotFound", {
+  id: Schema.Number
+}) {}
+
+export class TodoRepo extends ServiceMap.Service<TodoRepo, {
+  readonly getAll: Effect.Effect<ReadonlyArray<Todo>>
+  getById(id: number): Effect.Effect<Todo, TodoNotFound>
+  create(payload: CreateTodoPayload): Effect.Effect<Todo>
+}>()("app/TodoRepo") {
+  static readonly layer = Layer.effect(
+    TodoRepo,
+    Effect.gen(function*() {
+      const store = new Map<number, Todo>()
+      const nextId = yield* Ref.make(1)
+      
+      const getAll = Effect.gen(function*() {
+        return Array.from(store.values())
+      }).pipe(
+        Effect.withSpan("TodoRepo.getAll")
+      )
+      
+      const getById = Effect.fn("TodoRepo.getById")(function*(id: number) {
+        const todo = store.get(id)
+        if (todo === undefined) {
+          return yield* new TodoNotFound({ id })
+        }
+        return todo
+      })
+      
+      const create = Effect.fn("TodoRepo.create")(function*(payload: CreateTodoPayload) {
+        const id = yield* Ref.getAndUpdate(nextId, (current) => current + 1)
+        const todo = new Todo({ id, title: payload.title, completed: false })
+        store.set(id, todo)
+        return todo
+      })
+      
+      return TodoRepo.of({ getAll, getById, create })
+    })
+  )
+}
+
+// Create a shared runtime for all handlers
+export const appMemoMap = Layer.makeMemoMapUnsafe()
+export const runtime = ManagedRuntime.make(TodoRepo.layer, {
+  memoMap: appMemoMap
+})
+
+export const app = new Hono()
+
+// GET /todos - List all todos
+app.get("/todos", async (context) => {
+  const todos = await runtime.runPromise(
+    TodoRepo.use((repo) => repo.getAll)
+  )
+  return context.json(todos)
+})
+
+// GET /todos/:id - Get a single todo
+app.get("/todos/:id", async (context) => {
+  const id = Number(context.req.param("id"))
+  if (!Number.isFinite(id)) {
+    return context.json({ message: "Todo id must be a number" }, 400)
+  }
+  
+  const todo = await runtime.runPromise(
+    TodoRepo.use((repo) => repo.getById(id)).pipe(
+      Effect.catchTag("TodoNotFound", () => Effect.succeed(null))
+    )
+  )
+  
+  if (todo === null) {
+    return context.json({ message: "Todo not found" }, 404)
+  }
+  
+  return context.json(todo)
+})
+
+// POST /todos - Create a new todo
+const decodeCreateTodoPayload = Schema.decodeUnknownSync(CreateTodoPayload)
+
+app.post("/todos", async (context) => {
+  const body = await context.req.json()
+  
+  let payload: CreateTodoPayload
+  try {
+    payload = decodeCreateTodoPayload(body)
+  } catch {
+    return context.json({ message: "Invalid request body" }, 400)
+  }
+  
+  const todo = await runtime.runPromise(
+    TodoRepo.use((repo) => repo.create(payload))
+  )
+  
+  return context.json(todo, 201)
+})
+```
+
+## Running Effect Code
+
+`ManagedRuntime` provides several methods for running Effect code:
+
+### runPromise
+
+Run an effect and get a Promise (most common for async handlers):
+
+```typescript
+const result = await runtime.runPromise(effect)
+```
+
+### runSync
+
+Run a synchronous effect and get the result immediately:
+
+```typescript
+const result = runtime.runSync(effect)
+```
+
+### runCallback
+
+Run an effect with a callback for completion:
+
+```typescript
+runtime.runCallback(effect, (exit) => {
+  if (Exit.isSuccess(exit)) {
+    console.log("Success:", exit.value)
+  } else {
+    console.error("Failure:", exit.cause)
+  }
+})
+```
+
+### runFork
+
+Run an effect in the background and get a Fiber handle:
+
+```typescript
+const fiber = runtime.runFork(effect)
+```
+
+## Resource Cleanup
+
+Always dispose the runtime when your application shuts down to clean up resources:
+
+```typescript
+const shutdown = () => {
+  void runtime.dispose()
+}
+
+process.once("SIGINT", shutdown)
+process.once("SIGTERM", shutdown)
+```
+
+## Framework Integration Patterns
+
+### Express
+
+```typescript
+import express from "express"
+
+const app = express()
+
+app.get("/users/:id", async (req, res) => {
+  const userId = Number(req.params.id)
+  const user = await runtime.runPromise(
+    UserService.use((service) => service.getUserById(userId))
+  )
+  res.json(user)
+})
+```
+
+### Fastify
+
+```typescript
+import Fastify from "fastify"
+
+const fastify = Fastify()
+
+fastify.get("/users/:id", async (request, reply) => {
+  const userId = Number(request.params.id)
+  const user = await runtime.runPromise(
+    UserService.use((service) => service.getUserById(userId))
+  )
+  return user
+})
+```
+
+### Worker Queues
+
+```typescript
+import { Queue } from "bullmq"
+
+const queue = new Queue("tasks")
+
+queue.process(async (job) => {
+  await runtime.runPromise(
+    TaskService.use((service) => service.processTask(job.data))
+  )
+})
+```
+
+## Best Practices
+
+1. **Create one runtime per application**: Share a single `ManagedRuntime` across all handlers
+2. **Use a global memo map**: Ensures proper layer memoization with `Layer.makeMemoMapUnsafe()`
+3. **Dispose on shutdown**: Always call `runtime.dispose()` when the process exits
+4. **Keep domain logic in Effect**: Use `ManagedRuntime` only at the boundary; keep business logic in services
+5. **Handle errors gracefully**: Use `Effect.catchTag` or `Effect.catch` before calling `runPromise`
+6. **Use runPromise for async contexts**: Most web frameworks expect async handlers
+7. **Use runSync for synchronous edges**: Only when the framework requires synchronous execution
+
+## Error Handling
+
+Handle Effect errors before running them:
+
+```typescript
+app.get("/users/:id", async (req, res) => {
+  const userId = Number(req.params.id)
+  
+  const result = await runtime.runPromise(
+    UserService.use((service) => service.getUserById(userId)).pipe(
+      Effect.catchTag("UserNotFound", () => 
+        Effect.succeed({ error: "User not found" })
+      ),
+      Effect.catchAll((error) => 
+        Effect.succeed({ error: "Internal server error" })
+      )
+    )
+  )
+  
+  if ("error" in result) {
+    return res.status(404).json(result)
+  }
+  
+  res.json(result)
+})
+```
+
+## Testing with ManagedRuntime
+
+Create test-specific runtimes with mock layers:
+
+```typescript
+import { describe, it, expect } from "@effect/vitest"
+
+const testRuntime = ManagedRuntime.make(TodoRepo.layerTest)
+
+describe("Todo API", () => {
+  it("should create a todo", async () => {
+    const todo = await testRuntime.runPromise(
+      TodoRepo.use((repo) => repo.create({ title: "Test" }))
+    )
+    expect(todo.title).toBe("Test")
+  })
+})
+```

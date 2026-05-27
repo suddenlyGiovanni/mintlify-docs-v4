@@ -1,0 +1,365 @@
+---
+title: Data Structures
+description: Immutable data structures and tagged unions for building type-safe domain models
+---
+
+Effect provides immutable data structures with built-in equality, hashing, and pattern matching capabilities. These structures form the foundation for building type-safe domain models.
+
+## Overview
+
+The Data module provides:
+- **Immutable classes**: Value types with structural equality
+- **Tagged classes**: Discriminated unions with `_tag` fields
+- **Tagged enums**: Multi-variant unions with constructors
+- **Error classes**: Yieldable error types for Effect integration
+
+## Data.Class
+
+Base class for immutable data types with structural equality.
+
+### Basic Usage
+
+```ts
+import { Data, Equal } from "effect"
+
+class Person extends Data.Class<{ readonly name: string; readonly age: number }> {}
+
+const alice1 = new Person({ name: "Alice", age: 30 })
+const alice2 = new Person({ name: "Alice", age: 30 })
+const bob = new Person({ name: "Bob", age: 25 })
+
+console.log(Equal.equals(alice1, alice2)) // true
+console.log(Equal.equals(alice1, bob)) // false
+```
+
+### With Methods
+
+```ts
+import { Data } from "effect"
+
+class Point extends Data.Class<{ readonly x: number; readonly y: number }> {
+  distance(other: Point): number {
+    const dx = this.x - other.x
+    const dy = this.y - other.y
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+}
+
+const p1 = new Point({ x: 0, y: 0 })
+const p2 = new Point({ x: 3, y: 4 })
+
+console.log(p1.distance(p2)) // 5
+```
+
+## Data.TaggedClass
+
+Like Data.Class but automatically adds a `_tag` discriminator field.
+
+```ts
+import { Data } from "effect"
+
+class User extends Data.TaggedClass("User")<{
+  readonly id: number
+  readonly name: string
+}> {}
+
+class Guest extends Data.TaggedClass("Guest")<{
+  readonly sessionId: string
+}> {}
+
+const user = new User({ id: 1, name: "Alice" })
+console.log(user._tag) // "User"
+
+const guest = new Guest({ sessionId: "abc123" })
+console.log(guest._tag) // "Guest"
+```
+
+## Data.TaggedEnum
+
+Define discriminated unions with multiple variants.
+
+### Basic Tagged Enum
+
+```ts
+import { Data } from "effect"
+
+type Shape = Data.TaggedEnum<{
+  Circle: { readonly radius: number }
+  Rectangle: { readonly width: number; readonly height: number }
+  Triangle: { readonly base: number; readonly height: number }
+}>
+
+const { Circle, Rectangle, Triangle } = Data.taggedEnum<Shape>()
+
+const circle = Circle({ radius: 5 })
+const rect = Rectangle({ width: 10, height: 20 })
+
+console.log(circle._tag) // "Circle"
+console.log(rect._tag) // "Rectangle"
+```
+
+### Pattern Matching
+
+```ts
+import { Data } from "effect"
+
+type Shape = Data.TaggedEnum<{
+  Circle: { readonly radius: number }
+  Rectangle: { readonly width: number; readonly height: number }
+}>
+
+const { Circle, Rectangle, $match } = Data.taggedEnum<Shape>()
+
+const calculateArea = $match({
+  Circle: ({ radius }) => Math.PI * radius ** 2,
+  Rectangle: ({ width, height }) => width * height
+})
+
+const circle = Circle({ radius: 5 })
+const rect = Rectangle({ width: 10, height: 20 })
+
+console.log(calculateArea(circle)) // 78.54
+console.log(calculateArea(rect)) // 200
+```
+
+### Type Guards
+
+```ts
+import { Data } from "effect"
+
+type Result = Data.TaggedEnum<{
+  Success: { readonly value: string }
+  Failure: { readonly error: string }
+}>
+
+const { Success, Failure, $is } = Data.taggedEnum<Result>()
+
+const result = Success({ value: "data" })
+
+if ($is("Success")(result)) {
+  console.log(result.value) // TypeScript knows this is Success
+}
+
+if ($is("Failure")(result)) {
+  console.log(result.error) // This branch won't execute
+}
+```
+
+## Error Classes
+
+Yieldable error types that integrate with Effect's error handling.
+
+### Data.Error
+
+```ts
+import { Data, Effect } from "effect"
+
+class NetworkError extends Data.Error<{
+  readonly message: string
+  readonly statusCode: number
+}> {}
+
+const program = Effect.gen(function*() {
+  // Can yield errors directly
+  return yield* new NetworkError({
+    message: "Connection failed",
+    statusCode: 500
+  })
+})
+
+// Handle the error
+const handled = program.pipe(
+  Effect.catchAll((error) =>
+    Effect.log(`Error: ${error.message} (${error.statusCode})`)
+  )
+)
+```
+
+### Data.TaggedError
+
+```ts
+import { Data, Effect, Schema } from "effect"
+
+class ValidationError extends Data.TaggedError("ValidationError")<{
+  readonly field: string
+  readonly message: string
+}> {}
+
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
+  readonly query: string
+  readonly cause: string
+}> {}
+
+const program = Effect.gen(function*() {
+  return yield* new ValidationError({
+    field: "email",
+    message: "Invalid email format"
+  })
+})
+
+// Tag-based error handling
+const handled = program.pipe(
+  Effect.catchTag("ValidationError", (error) =>
+    Effect.log(`Validation failed on ${error.field}: ${error.message}`)
+  ),
+  Effect.catchTag("DatabaseError", (error) =>
+    Effect.log(`Database error: ${error.cause}`)
+  )
+)
+```
+
+## Schema Integration
+
+Use Schema.TaggedErrorClass for runtime-validated errors:
+
+```ts
+import { Effect, Schema } from "effect"
+
+class FileError extends Schema.TaggedErrorClass<FileError>()("FileError", {
+  path: Schema.String,
+  reason: Schema.Literal("not_found", "permission_denied", "corrupted")
+}) {}
+
+const program = Effect.gen(function*() {
+  return yield* new FileError({
+    path: "/etc/config",
+    reason: "permission_denied"
+  })
+})
+```
+
+## Working with Collections
+
+### HashMap
+
+```ts
+import { Data, HashMap } from "effect"
+
+class UserId extends Data.Class<{ readonly id: number }> {}
+
+let map = HashMap.empty<UserId, string>()
+map = HashMap.set(map, new UserId({ id: 1 }), "Alice")
+map = HashMap.set(map, new UserId({ id: 2 }), "Bob")
+
+const alice = HashMap.get(map, new UserId({ id: 1 }))
+console.log(alice) // Some("Alice")
+```
+
+### HashSet
+
+```ts
+import { Data, HashSet } from "effect"
+
+class Email extends Data.Class<{ readonly address: string }> {}
+
+let set = HashSet.empty<Email>()
+set = HashSet.add(set, new Email({ address: "alice@example.com" }))
+set = HashSet.add(set, new Email({ address: "bob@example.com" }))
+
+const hasAlice = HashSet.has(
+  set,
+  new Email({ address: "alice@example.com" })
+)
+console.log(hasAlice) // true
+```
+
+## Common Patterns
+
+### Domain Models
+
+```ts
+import { Data } from "effect"
+
+class Money extends Data.Class<{
+  readonly amount: number
+  readonly currency: string
+}> {
+  add(other: Money): Money {
+    if (this.currency !== other.currency) {
+      throw new Error("Currency mismatch")
+    }
+    return new Money({
+      amount: this.amount + other.amount,
+      currency: this.currency
+    })
+  }
+}
+
+const price1 = new Money({ amount: 10, currency: "USD" })
+const price2 = new Money({ amount: 5, currency: "USD" })
+const total = price1.add(price2)
+
+console.log(total) // Money { amount: 15, currency: "USD" }
+```
+
+### State Machines
+
+```ts
+import { Data } from "effect"
+
+type ConnectionState = Data.TaggedEnum<{
+  Disconnected: {}
+  Connecting: { readonly attemptCount: number }
+  Connected: { readonly connectionId: string }
+  Failed: { readonly error: string }
+}>
+
+const { Disconnected, Connecting, Connected, Failed, $match } =
+  Data.taggedEnum<ConnectionState>()
+
+const handleState = $match({
+  Disconnected: () => "Starting connection...",
+  Connecting: ({ attemptCount }) => `Attempt ${attemptCount}...`,
+  Connected: ({ connectionId }) => `Connected (${connectionId})",
+  Failed: ({ error }) => `Connection failed: ${error}`
+})
+
+const state = Connecting({ attemptCount: 2 })
+console.log(handleState(state)) // "Attempt 2..."
+```
+
+### ADT with Methods
+
+```ts
+import { Data } from "effect"
+
+type List<A> = Data.TaggedEnum<{
+  Nil: {}
+  Cons: { readonly head: A; readonly tail: List<A> }
+}>
+
+const makeList = <A>() => {
+  const { Nil, Cons, $match } = Data.taggedEnum<List<A>>()
+  
+  const length = $match({
+    Nil: () => 0,
+    Cons: ({ tail }) => 1 + length(tail)
+  })
+  
+  return { Nil, Cons, length }
+}
+
+const { Nil, Cons, length } = makeList<number>()
+
+const list = Cons({
+  head: 1,
+  tail: Cons({ head: 2, tail: Cons({ head: 3, tail: Nil({}) }) })
+})
+
+console.log(length(list)) // 3
+```
+
+## Best Practices
+
+1. **Use Data.Class for value types**: Prefer immutable data classes over plain objects
+2. **Use TaggedEnum for discriminated unions**: Better than manual discriminated unions
+3. **Leverage pattern matching**: Use $match for exhaustive case handling
+4. **Use TaggedError for domain errors**: Integrate errors with Effect's error handling
+5. **Keep data classes simple**: Move complex logic to separate functions
+6. **Use structural equality**: Take advantage of built-in equality for value types
+
+## Next Steps
+
+- Learn about [Schema](/core-modules/schema) for runtime validation
+- Explore [Effect](/core-modules/effect) for error handling
+- Understand how to build domain models with Effect
