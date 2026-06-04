@@ -132,6 +132,39 @@ const processRequest = Effect.gen(function*() {
 })
 ```
 
+## Configuring from OpenTelemetry environment variables
+
+Use `Otlp.layerFromConfig` to drive the OTLP exporters from the standard
+OpenTelemetry environment variables — no endpoint or service name needs to be
+hard-coded.
+
+```typescript
+import { Layer } from "effect"
+import { Otlp } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/unstable/http"
+
+const ObservabilityLayer = Otlp.layerFromConfig().pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+```
+
+The layer reads, per signal (`LOGS`, `METRICS`, `TRACES`):
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` (with `/v1/logs`, `/v1/metrics`, `/v1/traces`
+  appended) or the signal-specific `OTEL_EXPORTER_OTLP_{SIGNAL}_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_{SIGNAL}_HEADERS`
+- `OTEL_{SIGNAL}_EXPORTER` — must include `otlp` for that signal to be exported
+- `OTEL_EXPORTER_OTLP_TIMEOUT` / `OTEL_EXPORTER_OTLP_{SIGNAL}_TIMEOUT`
+- `OTEL_BLRP_SCHEDULE_DELAY`, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE`,
+  `OTEL_BLRP_EXPORT_TIMEOUT` (logs batching, and analogous variables for
+  metrics and traces)
+- `OTEL_SDK_DISABLED` — when `true`, the layer becomes a no-op
+- `OTEL_SERVICE_NAME`, `OTEL_SERVICE_VERSION`, `OTEL_RESOURCE_ATTRIBUTES`
+
+`OtlpLogger.layerFromConfig`, `OtlpMetrics.layerFromConfig`, and
+`OtlpTracer.layerFromConfig` are also available if you only need a subset of
+signals.
+
 ## Resource attributes
 
 Configure resource attributes for telemetry:
@@ -146,6 +179,14 @@ const resource = OtlpResource.make({
   "host.name": "server-01"
 })
 ```
+
+<Note>
+  OpenTelemetry environment variables (`OTEL_SERVICE_NAME`,
+  `OTEL_SERVICE_VERSION`, and `OTEL_RESOURCE_ATTRIBUTES`) take precedence over
+  values passed explicitly to `OtlpResource.fromConfig` or the `resource`
+  option on `Otlp.layer` / `Otlp.layerFromConfig`. This lets operators override
+  application defaults from the deployment environment without rebuilding.
+</Note>
 
 ## Log level filtering
 
