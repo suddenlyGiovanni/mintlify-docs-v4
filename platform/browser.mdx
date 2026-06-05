@@ -198,6 +198,28 @@ const checkNotificationPermission = Effect.gen(function* () {
 )
 ```
 
+### Cryptography
+
+#### BrowserCrypto
+
+Implements the `Crypto` service from `effect/Crypto` using the browser's
+`SubtleCrypto` API:
+
+```typescript
+import { BrowserCrypto } from "@effect/platform-browser"
+import { Crypto } from "effect"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto
+  const id = yield* crypto.randomUUIDv4
+  const bytes = yield* crypto.randomBytes(16)
+  return { id, bytes: Array.from(bytes) }
+}).pipe(
+  Effect.provide(BrowserCrypto.layer)
+)
+```
+
 ### Streams
 
 #### BrowserStream

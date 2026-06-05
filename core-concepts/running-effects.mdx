@@ -87,7 +87,7 @@ NodeRuntime.runMain(main)
 `ManagedRuntime` bridges Effect programs with non-Effect code. Build one runtime from your application Layer, then use it anywhere you need imperative execution:
 
 ```ts
-import { Effect, Layer, ManagedRuntime, Ref, Schema, ServiceMap } from "effect"
+import { Effect, Layer, ManagedRuntime, Ref, Schema, Context } from "effect"
 import { Hono } from "hono"
 
 class Todo extends Schema.Class<Todo>("Todo")({
@@ -104,7 +104,7 @@ class TodoNotFound extends Schema.TaggedErrorClass<TodoNotFound>()("TodoNotFound
   id: Schema.Number
 }) {}
 
-export class TodoRepo extends ServiceMap.Service<TodoRepo, {
+export class TodoRepo extends Context.Service<TodoRepo, {
   readonly getAll: Effect.Effect<ReadonlyArray<Todo>>
   getById(id: number): Effect.Effect<Todo, TodoNotFound>
   create(payload: CreateTodoPayload): Effect.Effect<Todo>

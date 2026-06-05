@@ -1,22 +1,22 @@
 ---
 title: Services
-description: Learn how to build service-oriented Effect applications with ServiceMap.Service, Layer, and ServiceMap.Reference
+description: Learn how to build service-oriented Effect applications with Context.Service, Layer, and Context.Reference
 ---
 
 ## Service-Oriented Architecture
 
 Effect services are the most common way to structure Effect code. Prefer using services to encapsulate behavior over other approaches, as it ensures that your code is modular, testable, and maintainable.
 
-## Defining Services with ServiceMap.Service
+## Defining Services with Context.Service
 
-The default way to define a service is to extend `ServiceMap.Service`, passing in the service interface as a type parameter.
+The default way to define a service is to extend `Context.Service`, passing in the service interface as a type parameter.
 
 ```ts
-import { Effect, Layer, Schema, ServiceMap } from "effect"
+import { Effect, Layer, Schema, Context } from "effect"
 
 // Pass in the service class name as the first type parameter, and the service
 // interface as the second type parameter.
-export class Database extends ServiceMap.Service<Database, {
+export class Database extends Context.Service<Database, {
   query(sql: string): Effect.Effect<Array<unknown>, DatabaseError>
 }>()()
   // The string identifier for the service, which should include the package
@@ -57,7 +57,7 @@ Layers define how services are constructed and their dependencies. Use `Layer.ef
 
 ```ts
 import { PgClient } from "@effect/sql-pg"
-import { Array, Config, Effect, Layer, type Option, Schema, ServiceMap } from "effect"
+import { Array, Config, Effect, Layer, type Option, Schema, Context } from "effect"
 import { SqlClient, SqlError } from "effect/unstable/sql"
 
 // Define a layer for the SqlClient service
@@ -72,7 +72,7 @@ export class UserRespositoryError extends Schema.TaggedErrorClass<UserRespositor
   reason: SqlError.SqlError
 }) {}
 
-export class UserRepository extends ServiceMap.Service<UserRepository, {
+export class UserRepository extends Context.Service<UserRepository, {
   findById(id: string): Effect.Effect<
     Option.Option<{ readonly id: string; readonly name: string }>,
     UserRespositoryError
@@ -145,14 +145,14 @@ static readonly layerWithSqlClient = this.layerNoDeps.pipe(
 )
 ```
 
-## ServiceMap.Reference for Configuration
+## Context.Reference for Configuration
 
-Use `ServiceMap.Reference` for defining configuration values, feature flags, or any other service that has a default value.
+Use `Context.Reference` for defining configuration values, feature flags, or any other service that has a default value.
 
 ```ts
-import { ServiceMap } from "effect"
+import { Context } from "effect"
 
-export const FeatureFlag = ServiceMap.Reference<boolean>("myapp/FeatureFlag", {
+export const FeatureFlag = Context.Reference<boolean>("myapp/FeatureFlag", {
   defaultValue: () => false
 })
 ```
@@ -162,13 +162,13 @@ export const FeatureFlag = ServiceMap.Reference<boolean>("myapp/FeatureFlag", {
 Build a layer dynamically from an Effect or Config with `Layer.unwrap`:
 
 ```ts
-import { Config, Effect, Layer, Schema, ServiceMap } from "effect"
+import { Config, Effect, Layer, Schema, Context } from "effect"
 
 export class MessageStoreError extends Schema.TaggedErrorClass<MessageStoreError>()("MessageStoreError", {
   cause: Schema.Defect
 }) {}
 
-export class MessageStore extends ServiceMap.Service<MessageStore, {
+export class MessageStore extends Context.Service<MessageStore, {
   append(message: string): Effect.Effect<void>
   readonly all: Effect.Effect<ReadonlyArray<string>>
 }>()("myapp/MessageStore") {
@@ -227,11 +227,11 @@ export class MessageStore extends ServiceMap.Service<MessageStore, {
 
 ## Best Practices
 
-- Use `ServiceMap.Service` to define service interfaces
+- Use `Context.Service` to define service interfaces
 - Use `Layer.effect` to implement service layers
 - Define service methods with `Effect.fn` for better tracing
 - Use `Layer.provide` to hide implementation details
 - Use `Layer.provideMerge` when you need to expose dependencies
-- Use `ServiceMap.Reference` for configuration values with defaults
+- Use `Context.Reference` for configuration values with defaults
 - Use `Layer.unwrap` for dynamic layer construction based on configuration
 - Name service identifiers with package name and path (e.g., "myapp/db/Database")

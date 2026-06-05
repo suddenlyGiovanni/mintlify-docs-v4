@@ -199,7 +199,7 @@ yield* Effect.log(`Using provider: ${provider}`)
 ```typescript
 import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
-import { Config, Effect, ExecutionPlan, Layer, Schema, ServiceMap } from "effect"
+import { Config, Effect, ExecutionPlan, Layer, Schema, Context } from "effect"
 import { AiError, LanguageModel, Model } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"
 
@@ -234,7 +234,7 @@ export class AiWriterError extends Schema.TaggedErrorClass<AiWriterError>()("AiW
   }
 }
 
-export class AiWriter extends ServiceMap.Service<AiWriter, {
+export class AiWriter extends Context.Service<AiWriter, {
   draftAnnouncement(product: string): Effect.Effect<{
     readonly provider: string
     readonly text: string

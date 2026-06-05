@@ -1,11 +1,11 @@
 ---
 title: "Services Migration"
-description: "Migrating from Context.Tag to ServiceMap.Service in Effect v4"
+description: "Migrating from Context.Tag to Context.Service in Effect v4"
 ---
 
-In v3, services were defined using `Context.Tag`, `Context.GenericTag`, `Effect.Tag`, or `Effect.Service`. In v4, all of these have been replaced by `ServiceMap.Service`.
+In v3, services were defined using `Context.Tag`, `Context.GenericTag`, `Effect.Tag`, or `Effect.Service`. In v4, all of these have been replaced by `Context.Service`.
 
-The underlying data structure has also changed: `Context` has been replaced by `ServiceMap` — a typed map from service identifiers to their implementations.
+The `Context` module has also been reorganized: it now exports `Service`, `Reference`, `Key`, and the underlying `Context<Services>` data type (a typed map from service identifiers to their implementations).
 
 ## Defining Services
 
@@ -23,13 +23,13 @@ const Database = Context.GenericTag<Database>("Database")
 ```
 
 ```ts v4
-import { ServiceMap } from "effect"
+import { Context } from "effect"
 
 interface Database {
   readonly query: (sql: string) => string
 }
 
-const Database = ServiceMap.Service<Database>("Database")
+const Database = Context.Service<Database>("Database")
 ```
 </CodeGroup>
 
@@ -45,16 +45,16 @@ class Database extends Context.Tag("Database")<Database, {
 ```
 
 ```ts v4
-import { ServiceMap } from "effect"
+import { Context } from "effect"
 
-class Database extends ServiceMap.Service<Database, {
+class Database extends Context.Service<Database, {
   readonly query: (sql: string) => string
 }>()("Database") {}
 ```
 </CodeGroup>
 
 <Note>
-Note the difference in argument order: in v3, the identifier string is passed to `Context.Tag(id)` before the type parameters. In v4, the type parameters come first via `ServiceMap.Service<Self, Shape>()` and the identifier string is passed to the returned constructor `(id)`.
+Note the difference in argument order: in v3, the identifier string is passed to `Context.Tag(id)` before the type parameters. In v4, the type parameters come first via `Context.Service<Self, Shape>()` and the identifier string is passed to the returned constructor `(id)`.
 </Note>
 
 ## Migrating from Effect.Tag Accessors
@@ -85,9 +85,9 @@ const program = Notifications.notify("hello")
 ```
 
 ```ts v4
-import { Effect, ServiceMap } from "effect"
+import { Context, Effect } from "effect"
 
-class Notifications extends ServiceMap.Service<Notifications, {
+class Notifications extends Context.Service<Notifications, {
   readonly notify: (message: string) => Effect.Effect<void>
 }>()("Notifications") {}
 
@@ -128,7 +128,7 @@ const program = Effect.gen(function*() {
 
 ## Migrating Effect.Service
 
-v3's `Effect.Service` allowed defining a service with an effectful constructor and dependencies inline. In v4, use `ServiceMap.Service` with a `make` option.
+v3's `Effect.Service` allowed defining a service with an effectful constructor and dependencies inline. In v4, use `Context.Service` with a `make` option.
 
 <CodeGroup>
 ```ts v3
@@ -150,9 +150,9 @@ const program = Effect.gen(function*() {
 ```
 
 ```ts v4
-import { Effect, Layer, ServiceMap } from "effect"
+import { Context, Effect, Layer } from "effect"
 
-class Logger extends ServiceMap.Service<Logger>()("Logger", {
+class Logger extends Context.Service<Logger>()("Logger", {
   make: Effect.gen(function*() {
     const config = yield* Config
     return { log: (msg: string) => Effect.log(`[${config.prefix}] ${msg}`) }
@@ -184,9 +184,9 @@ class LogLevel extends Context.Reference<LogLevel>()("LogLevel", {
 ```
 
 ```ts v4
-import { ServiceMap } from "effect"
+import { Context } from "effect"
 
-const LogLevel = ServiceMap.Reference<"info" | "warn" | "error">("LogLevel", {
+const LogLevel = Context.Reference<"info" | "warn" | "error">("LogLevel", {
   defaultValue: () => "info" as const
 })
 ```
@@ -196,22 +196,22 @@ const LogLevel = ServiceMap.Reference<"info" | "warn" | "error">("LogLevel", {
 
 | v3 | v4 |
 | --- | --- |
-| `Context.GenericTag<T>(id)` | `ServiceMap.Service<T>(id)` |
-| `Context.Tag(id)<Self, Shape>()` | `ServiceMap.Service<Self, Shape>()(id)` |
-| `Effect.Tag(id)<Self, Shape>()` | `ServiceMap.Service<Self, Shape>()(id)` |
-| `Effect.Service<Self>()(id, opts)` | `ServiceMap.Service<Self>()(id, { make })` |
-| `Context.Reference<Self>()(id, opts)` | `ServiceMap.Reference<T>(id, opts)` |
-| `Context.make(tag, impl)` | `ServiceMap.make(tag, impl)` |
-| `Context.get(ctx, tag)` | `ServiceMap.get(map, tag)` |
-| `Context.add(ctx, tag, impl)` | `ServiceMap.add(map, tag, impl)` |
-| `Context.mergeAll(...)` | `ServiceMap.mergeAll(...)` |
+| `Context.GenericTag<T>(id)` | `Context.Service<T>(id)` |
+| `Context.Tag(id)<Self, Shape>()` | `Context.Service<Self, Shape>()(id)` |
+| `Effect.Tag(id)<Self, Shape>()` | `Context.Service<Self, Shape>()(id)` |
+| `Effect.Service<Self>()(id, opts)` | `Context.Service<Self>()(id, { make })` |
+| `Context.Reference<Self>()(id, opts)` | `Context.Reference<T>(id, opts)` |
+| `Context.make(tag, impl)` | `Context.make(tag, impl)` |
+| `Context.get(ctx, tag)` | `Context.get(ctx, tag)` |
+| `Context.add(ctx, tag, impl)` | `Context.add(ctx, tag, impl)` |
+| `Context.mergeAll(...)` | `Context.mergeAll(...)` |
 
 ## Summary
 
-The migration from `Context.Tag` to `ServiceMap.Service` involves:
+The migration from `Context.Tag` to `Context.Service` involves:
 
-1. **Rename imports** from `Context` to `ServiceMap`
-2. **Update service definitions** to use `ServiceMap.Service`
+1. **Replace tag constructors** (`Context.Tag`, `Context.GenericTag`, `Effect.Tag`, `Effect.Service`) with `Context.Service`
+2. **Update class-based services** to put type parameters before the identifier
 3. **Replace accessor patterns** with `yield*` or `Service.use`
 4. **Manually create layers** for services with `make` (no auto-generated `.Default`)
 5. **Use `layer` naming convention** instead of `Default` or `Live`

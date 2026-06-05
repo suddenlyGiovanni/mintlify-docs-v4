@@ -85,11 +85,15 @@ const TagsSchema = Schema.Array(Schema.String).pipe(
 
 // Non-empty arrays
 const NonEmptyArraySchema = Schema.NonEmptyArray(Schema.String)
+
+// Access the element schema via `.value`, for consistency with other
+// collection wrappers like `Schema.Chunk` and `Schema.HashSet`:
+const ElementSchema = NumberArraySchema.value // Schema.Number
 ```
 
 ## Parsing and Validation
 
-### Using makeUnsafe
+### Using make
 
 ```ts
 import { Schema } from "effect"
@@ -101,7 +105,7 @@ const PersonSchema = Schema.Struct({
 
 // Parse and validate (throws on error)
 try {
-  const person = PersonSchema.makeUnsafe({
+  const person = PersonSchema.make({
     name: "Alice",
     age: 30
   })
@@ -302,7 +306,7 @@ type UserEncoded = Schema.Schema.Encoded<typeof UserSchema>
 2. **Use Schema.TaggedErrorClass**: Define custom errors with schemas for better type safety
 3. **Compose schemas**: Build complex schemas from simpler ones
 4. **Add annotations**: Document your schemas for better JSON Schema generation and error messages
-5. **Prefer makeOption over makeUnsafe**: Use `makeOption` when validation failure is expected
+5. **Prefer makeOption over make**: Use `makeOption` when validation failure is expected
 
 ## Next Steps
 

@@ -297,6 +297,27 @@ const circuitBreaker = Schedule.exponential("1 second").pipe(
 
 ### Tap on Each Iteration
 
+Use `Schedule.tap` to inspect each iteration's metadata (attempt count,
+elapsed time, current output, and next delay) without modifying the
+schedule:
+
+```ts
+import { Effect, Schedule } from "effect"
+
+const monitored = Schedule.exponential("100 millis").pipe(
+  Schedule.take(5),
+  Schedule.tap((meta) =>
+    Effect.log(
+      `Attempt ${meta.attempt} produced ${meta.output} ` +
+        `after ${meta.elapsed}ms; next delay is ${meta.duration}`
+    )
+  )
+)
+```
+
+For finer-grained taps, use `Schedule.tapInput` (called with each input to the
+schedule) and `Schedule.tapOutput` (called with each output):
+
 ```ts
 import { Effect, Schedule } from "effect"
 

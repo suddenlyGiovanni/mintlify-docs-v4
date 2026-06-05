@@ -15,11 +15,11 @@ The `effect/unstable/process` modules provide tools for spawning and managing ch
 ## Basic usage
 
 ```typescript
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-class DevTools extends ServiceMap.Service<DevTools, {
+class DevTools extends Context.Service<DevTools, {
   readonly nodeVersion: Effect.Effect<string, DevToolsError>
 }>()("app/DevTools") {
   static readonly layer = Layer.effect(
@@ -186,14 +186,14 @@ const all = handle.all.pipe(
 
 ```typescript
 import { NodeServices } from "@effect/platform-node"
-import { Console, Effect, Layer, Schema, ServiceMap, Stream, String } from "effect"
+import { Console, Effect, Layer, Schema, Context, Stream, String } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 export class DevToolsError extends Schema.TaggedErrorClass<DevToolsError>()("DevToolsError", {
   cause: Schema.Defect
 }) {}
 
-export class DevTools extends ServiceMap.Service<DevTools, {
+export class DevTools extends Context.Service<DevTools, {
   readonly nodeVersion: Effect.Effect<string, DevToolsError>
   readonly recentCommitSubjects: Effect.Effect<ReadonlyArray<string>, DevToolsError>
   readonly runLintFix: Effect.Effect<void, DevToolsError>

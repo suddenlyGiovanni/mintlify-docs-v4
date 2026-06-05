@@ -113,9 +113,9 @@ Generate a typed client from your API definition:
 ```typescript
 import { HttpApiClient } from "effect/unstable/httpapi"
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
-import { Effect, Layer, Schedule, ServiceMap } from "effect"
+import { Effect, Layer, Schedule, Context } from "effect"
 
-class ApiClient extends ServiceMap.Service<
+class ApiClient extends Context.Service<
   ApiClient,
   HttpApiClient.ForApi<typeof Api>
 >()("app/ApiClient") {
@@ -229,11 +229,37 @@ const AuthorizationClient = HttpApiMiddleware.layerClient(
 )
 ```
 
+## Security schemes
+
+`HttpApiSecurity` describes how an endpoint or group authenticates requests.
+The module exposes constructors for the standard schemes — `bearer`, `basic`,
+and `apiKey` — plus `http` for custom HTTP authentication schemes.
+
+```typescript
+import { HttpApiSecurity } from "effect/unstable/httpapi"
+
+// Standard Bearer token: Authorization: Bearer <token>
+const Bearer = HttpApiSecurity.bearer
+
+// Custom HTTP scheme: Authorization: DPoP <token>
+const DPoP = HttpApiSecurity.http({ scheme: "DPoP" })
+
+// API key via header, query parameter, or cookie
+const ApiKey = HttpApiSecurity.apiKey({
+  in: "header",
+  key: "x-api-key"
+})
+```
+
+Use `HttpApiBuilder.middlewareSecurity` to implement the middleware that
+validates credentials for each scheme. Custom HTTP schemes defined with
+`HttpApiSecurity.http` are also rendered into the generated OpenAPI document.
+
 ## Complete example
 
 ```typescript
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
-import { Effect, Layer, Schema, ServiceMap } from "effect"
+import { Effect, Layer, Schema, Context } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApi } from "effect/unstable/httpapi"
 import { createServer } from "node:http"

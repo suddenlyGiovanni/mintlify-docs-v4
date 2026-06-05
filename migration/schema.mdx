@@ -304,8 +304,8 @@ class User extends Schema.Opaque<User>()(
   })
 ) {}
 
-const userId = UserId.makeUnsafe("user-123")
-const user = User.makeUnsafe({ id: userId, name: "Alice" })
+const userId = UserId.make("user-123")
+const user = User.make({ id: userId, name: "Alice" })
 ```
 
 ## Template Literals

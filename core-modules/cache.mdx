@@ -300,9 +300,9 @@ const program = Effect.gen(function*() {
 ### Cache as a Service
 
 ```ts
-import { Cache, Effect, Layer, ServiceMap } from "effect"
+import { Cache, Effect, Layer, Context } from "effect"
 
-class UserCache extends ServiceMap.Service<UserCache, {
+class UserCache extends Context.Service<UserCache, {
   getUser(id: number): Effect.Effect<User, Error>
 }>()("UserCache") {
   static readonly layer = Layer.effect(

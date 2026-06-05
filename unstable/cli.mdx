@@ -190,6 +190,51 @@ const subcommand = Command.make(
 )
 ```
 
+## Hiding flags and commands
+
+Both flags and subcommands support a `hidden` modifier. Hidden items still work
+when invoked but are omitted from help text — useful for experimental flags or
+internal tooling.
+
+```typescript
+import { Command, Flag } from "effect/unstable/cli"
+
+// Hidden flag — accepted, but not shown in --help
+const internal = Flag.boolean("internal").pipe(
+  Flag.withHidden
+)
+
+// Hidden subcommand — invokable, but not listed under `myapp --help`
+const debug = Command.make("debug", {}).pipe(
+  Command.withHidden
+)
+```
+
+## Built-in version flag
+
+`Command.run` automatically registers a `--version` flag with a `-v` alias.
+Both `myapp --version` and `myapp -v` print the version string passed to
+`Command.run`.
+
+## Prompts
+
+The `Prompt` module collects interactive input. Prompts that accept defaults
+include `Prompt.integer` and `Prompt.file`:
+
+```typescript
+import { Prompt } from "effect/unstable/cli"
+
+const port = Prompt.integer({
+  message: "Port?",
+  default: 3000
+})
+
+const config = Prompt.file({
+  message: "Path to config",
+  default: "./config.json"
+})
+```
+
 ## Running commands
 
 ```typescript

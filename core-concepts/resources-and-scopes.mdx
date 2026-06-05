@@ -12,14 +12,14 @@ Effect provides safe resource management through Scopes and finalizers. This ens
 Use `Effect.acquireRelease` to manage resources with automatic cleanup:
 
 ```ts
-import { Config, Effect, Layer, Redacted, Schema, ServiceMap } from "effect"
+import { Config, Effect, Layer, Redacted, Schema, Context } from "effect"
 import * as NodeMailer from "nodemailer"
 
 export class SmtpError extends Schema.ErrorClass<SmtpError>("SmtpError")({
   cause: Schema.Defect
 }) {}
 
-export class Smtp extends ServiceMap.Service<Smtp, {
+export class Smtp extends Context.Service<Smtp, {
   send(message: {
     readonly to: string
     readonly subject: string
@@ -84,7 +84,7 @@ export class MailerError extends Schema.TaggedErrorClass<MailerError>()("MailerE
   reason: SmtpError
 }) {}
 
-export class Mailer extends ServiceMap.Service<Mailer, {
+export class Mailer extends Context.Service<Mailer, {
   sendWelcomeEmail(to: string): Effect.Effect<void, MailerError>
 }>()("app/Mailer") {
   static readonly layerNoDeps = Layer.effect(
@@ -181,7 +181,7 @@ Effect.gen(function*() {
 Use `LayerMap.Service` to dynamically build and manage resources keyed by identifiers:
 
 ```ts
-import { Effect, Layer, LayerMap, Schema, ServiceMap } from "effect"
+import { Effect, Layer, LayerMap, Schema, Context } from "effect"
 
 class DatabaseQueryError extends Schema.TaggedErrorClass<DatabaseQueryError>()("DatabaseQueryError", {
   tenantId: Schema.String,
@@ -195,7 +195,7 @@ type UserRecord = {
 
 let nextConnectionId = 0
 
-export class DatabasePool extends ServiceMap.Service<DatabasePool, {
+export class DatabasePool extends Context.Service<DatabasePool, {
   readonly tenantId: string
   readonly connectionId: number
   readonly query: (sql: string) => Effect.Effect<ReadonlyArray<UserRecord>, DatabaseQueryError>

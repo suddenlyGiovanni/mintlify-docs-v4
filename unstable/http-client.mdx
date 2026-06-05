@@ -12,10 +12,10 @@ The `HttpClient` module from `effect/unstable/http` provides a powerful, composa
 Import the HttpClient module and use it in your services:
 
 ```typescript
-import { Effect, Layer, Schedule, ServiceMap } from "effect"
+import { Effect, Layer, Schedule, Context } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 
-class ApiService extends ServiceMap.Service<ApiService, {
+class ApiService extends Context.Service<ApiService, {
   fetchData(): Effect.Effect<Data, ApiError>
 }>()("app/ApiService") {
   static readonly layer = Layer.effect(
@@ -171,7 +171,7 @@ const layer = MyService.layer.pipe(
 ## Complete example
 
 ```typescript
-import { Effect, Layer, Schedule, Schema, ServiceMap } from "effect"
+import { Effect, Layer, Schedule, Schema, Context } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 
 class Todo extends Schema.Class<Todo>("Todo")({
@@ -181,7 +181,7 @@ class Todo extends Schema.Class<Todo>("Todo")({
   completed: Schema.Boolean
 }) {}
 
-export class JsonPlaceholder extends ServiceMap.Service<JsonPlaceholder, {
+export class JsonPlaceholder extends Context.Service<JsonPlaceholder, {
   getTodo(id: number): Effect.Effect<Todo, JsonPlaceholderError>
   createTodo(todo: Omit<Todo, "id">): Effect.Effect<Todo, JsonPlaceholderError>
 }>()("app/JsonPlaceholder") {

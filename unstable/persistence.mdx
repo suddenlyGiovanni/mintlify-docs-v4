@@ -18,10 +18,10 @@ The `effect/unstable/persistence` modules provide abstractions for:
 Abstract key-value storage interface:
 
 ```typescript
-import { Effect, Layer, Schema, ServiceMap } from "effect"
+import { Effect, Layer, Schema, Context } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-class UserCache extends ServiceMap.Service<UserCache, {
+class UserCache extends Context.Service<UserCache, {
   get(id: string): Effect.Effect<User | null, CacheError>
   set(id: string, user: User): Effect.Effect<void, CacheError>
 }>()("app/UserCache") {
@@ -205,7 +205,7 @@ const MemoryStore = Layer.succeed(
 ## Complete example
 
 ```typescript
-import { Effect, Layer, Schema, ServiceMap } from "effect"
+import { Effect, Layer, Schema, Context } from "effect"
 import { KeyValueStore, PersistedCache, Redis } from "effect/unstable/persistence"
 
 class User extends Schema.Class<User>("User")({
@@ -219,7 +219,7 @@ class CacheError extends Schema.TaggedErrorClass<CacheError>()("CacheError", {
 }) {}
 
 // Define database service
-class Database extends ServiceMap.Service<Database, {
+class Database extends Context.Service<Database, {
   findUser(id: string): Effect.Effect<User | null, DatabaseError>
 }>()("app/Database") {
   static readonly layer = Layer.succeed(
@@ -239,7 +239,7 @@ class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()("DatabaseEr
 }) {}
 
 // Create cached user service
-class UserService extends ServiceMap.Service<UserService, {
+class UserService extends Context.Service<UserService, {
   getUser(id: string): Effect.Effect<User | null, CacheError | DatabaseError>
 }>()("app/UserService") {
   static readonly layer = Layer.effect(

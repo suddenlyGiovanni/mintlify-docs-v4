@@ -19,9 +19,9 @@ Layers are the idiomatic way to create services that depend on other services in
 ### Basic Layer from a Service
 
 ```ts
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 
-class Database extends ServiceMap.Service<Database, {
+class Database extends Context.Service<Database, {
   query(sql: string): Effect.Effect<Array<unknown>, Error>
 }>()("Database") {
   static readonly layer = Layer.effect(
@@ -44,10 +44,10 @@ class Database extends ServiceMap.Service<Database, {
 ### Layer with Dependencies
 
 ```ts
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 
 // Config service
-class Config extends ServiceMap.Service<Config, {
+class Config extends Context.Service<Config, {
   connectionString: string
 }>()("Config") {
   static readonly layer = Layer.succeed(Config)({
@@ -56,7 +56,7 @@ class Config extends ServiceMap.Service<Config, {
 }
 
 // Database depends on Config
-class Database extends ServiceMap.Service<Database, {
+class Database extends Context.Service<Database, {
   query(sql: string): Effect.Effect<Array<unknown>, Error>
 }>()("Database") {
   static readonly layer = Layer.effect(
@@ -81,9 +81,9 @@ class Database extends ServiceMap.Service<Database, {
 Create a layer that succeeds with a value:
 
 ```ts
-import { Layer, ServiceMap } from "effect"
+import { Layer, Context } from "effect"
 
-class Logger extends ServiceMap.Service<Logger, {
+class Logger extends Context.Service<Logger, {
   log(message: string): void
 }>()("Logger") {
   static readonly layer = Layer.succeed(Logger)({
@@ -97,9 +97,9 @@ class Logger extends ServiceMap.Service<Logger, {
 Create a layer from an Effect:
 
 ```ts
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 
-class Cache extends ServiceMap.Service<Cache, {
+class Cache extends Context.Service<Cache, {
   get(key: string): Effect.Effect<string | undefined>
 }>()("Cache") {
   static readonly layer = Layer.effect(
@@ -231,9 +231,9 @@ NodeRuntime.runMain(Layer.launch(MainLayer))
 ### Layer with Cleanup
 
 ```ts
-import { Effect, Layer, Scope, ServiceMap } from "effect"
+import { Effect, Layer, Scope, Context } from "effect"
 
-class Connection extends ServiceMap.Service<Connection, {
+class Connection extends Context.Service<Connection, {
   execute(cmd: string): Effect.Effect<void>
 }>()("Connection") {
   static readonly layer = Layer.effect(
@@ -283,10 +283,10 @@ const freshLayer = Layer.fresh(Database.layer)
 ## Testing with Layers
 
 ```ts
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 
 // Mock layer for testing
-class MockDatabase extends ServiceMap.Service<Database, {
+class MockDatabase extends Context.Service<Database, {
   query(sql: string): Effect.Effect<Array<unknown>, Error>
 }>()("Database") {
   static readonly layer = Layer.succeed(Database)({
@@ -358,4 +358,4 @@ const DatabaseLayer = Layer.unwrap(
 
 - Learn about [Effect](/core-modules/effect) for building effectful computations
 - Explore [Config](/core-modules/config) for configuration management
-- Understand how to create services with ServiceMap
+- Understand how to create services with Context

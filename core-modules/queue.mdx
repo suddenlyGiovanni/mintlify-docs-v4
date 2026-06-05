@@ -306,9 +306,9 @@ const program = Effect.gen(function*() {
 ## Queue as a Service
 
 ```ts
-import { Effect, Layer, Queue, ServiceMap } from "effect"
+import { Effect, Layer, Queue, Context } from "effect"
 
-class TaskQueue extends ServiceMap.Service<TaskQueue, {
+class TaskQueue extends Context.Service<TaskQueue, {
   submit(task: string): Effect.Effect<void>
   process(): Effect.Effect<string>
 }>()("TaskQueue") {
