@@ -200,6 +200,29 @@ const program = Effect.gen(function* () {
 )
 ```
 
+#### NodeCrypto
+
+Implements the `Crypto` service from `effect/Crypto` using Node's `node:crypto`
+module:
+
+```typescript
+import { NodeCrypto } from "@effect/platform-node"
+import { Crypto } from "effect"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto
+  const id = yield* crypto.randomUUIDv4
+  const bytes = yield* crypto.randomBytes(16)
+  return { id, hex: Buffer.from(bytes).toString("hex") }
+}).pipe(
+  Effect.provide(NodeCrypto.layer)
+)
+```
+
+`NodeServices.layer` already includes `NodeCrypto.layer`, so most apps that
+provide `NodeServices` get `Crypto` automatically.
+
 #### NodeTerminal
 
 Terminal/TTY operations:

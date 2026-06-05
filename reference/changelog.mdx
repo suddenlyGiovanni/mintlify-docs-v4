@@ -45,7 +45,7 @@ Effect v4 represents a major evolution of the Effect ecosystem with:
 - Changed default ErrorReporter severity to Info
 
 **New Features:**
-- Added `ServiceMap.Key` type as base for `ServiceMap.Service` and `ServiceMap.Reference`
+- Added `Context.Key` type as base for `Context.Service` and `Context.Reference`
 - Added dedicated `AiError` metadata interfaces per reason
 - Added `Model.ModelName` service
 - Reverted `Effect.partition` to v3 behavior (accumulates failures, never fails)
@@ -95,7 +95,7 @@ Effect v4 represents a major evolution of the Effect ecosystem with:
 ### v4.0.0-beta.14
 
 **Changes:**
-- Made CLI global settings directly yieldable (now extends `ServiceMap.Reference`)
+- Made CLI global settings directly yieldable (now extends `Context.Reference`)
 - Renamed built-in globals:
   - `GlobalFlag.CompletionsFlag` → `GlobalFlag.Completions`
   - `GlobalFlag.LogLevelFlag` → `GlobalFlag.LogLevel`

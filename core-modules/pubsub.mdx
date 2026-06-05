@@ -227,7 +227,7 @@ const program = Effect.gen(function*() {
 ## Broadcasting Domain Events
 
 ```ts
-import { Effect, Layer, PubSub, Schema, ServiceMap } from "effect"
+import { Effect, Layer, PubSub, Schema, Context } from "effect"
 
 // Define domain event
 class UserCreated extends Schema.Class<UserCreated>()("UserCreated", {
@@ -238,7 +238,7 @@ class UserCreated extends Schema.Class<UserCreated>()("UserCreated", {
 type DomainEvent = UserCreated
 
 // Event bus service
-class EventBus extends ServiceMap.Service<EventBus, {
+class EventBus extends Context.Service<EventBus, {
   publish(event: DomainEvent): Effect.Effect<void>
   subscribe(): Effect.Effect<PubSub.Subscription<DomainEvent>, never, Scope>
 }>()("EventBus") {

@@ -83,9 +83,9 @@ const resolver = yield* RequestResolver.make<GetUserById>(
 Wrap the resolver in a service method to make it easy to use:
 
 ```typescript
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 
-export class Users extends ServiceMap.Service<Users, {
+export class Users extends Context.Service<Users, {
   getUserById(id: number): Effect.Effect<User, UserNotFound>
 }>()("app/Users") {
   static readonly layer = Layer.effect(
@@ -162,7 +162,7 @@ RequestResolver.withSpan("resolver-name")
 Here's a complete service using request batching for a user lookup system:
 
 ```typescript
-import { Effect, Exit, Layer, Request, RequestResolver, Schema, ServiceMap } from "effect"
+import { Effect, Exit, Layer, Request, RequestResolver, Schema, Context } from "effect"
 
 export class User extends Schema.Class<User>("User")({
   id: Schema.Number,
@@ -174,7 +174,7 @@ export class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>()("UserN
   id: Schema.Number
 }) {}
 
-export class Users extends ServiceMap.Service<Users, {
+export class Users extends Context.Service<Users, {
   getUserById(id: number): Effect.Effect<User, UserNotFound>
 }>()("app/Users") {
   static readonly layer = Layer.effect(

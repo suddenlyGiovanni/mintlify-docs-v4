@@ -76,7 +76,7 @@ The fiber runtime has been rewritten for reduced memory overhead and faster exec
 
 <CardGroup cols={2}>
   <Card title="Services" icon="tag" href="/migration/services">
-    `Context.Tag` → `ServiceMap.Service` migration
+    `Context.Tag` → `Context.Service` migration
   </Card>
   <Card title="Error Handling" icon="triangle-exclamation" href="/migration/error-handling">
     `catch*` renamings and new error handling patterns
@@ -95,7 +95,7 @@ For complete migration coverage, see the source documentation:
 - **Effect Subtyping:** Yieldable interface
 - **Fiber Keep-Alive:** Automatic process lifetime management
 - **Layer Memoization:** Across `Effect.provide` calls
-- **FiberRef:** `FiberRef` → `ServiceMap.Reference`
+- **FiberRef:** `FiberRef` → `Context.Reference`
 - **Runtime:** `Runtime<R>` removed
 - **Scope:** Scope handling changes
 - **Equality:** Equality comparison updates

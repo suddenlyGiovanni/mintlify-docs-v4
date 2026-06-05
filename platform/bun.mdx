@@ -198,6 +198,25 @@ const program = Effect.gen(function* () {
 )
 ```
 
+#### BunCrypto
+
+Implements the `Crypto` service from `effect/Crypto` using Bun's built-in
+Web Crypto API:
+
+```typescript
+import { BunCrypto } from "@effect/platform-bun"
+import { Crypto } from "effect"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto
+  const bytes = yield* crypto.getRandomValues(new Uint8Array(16))
+  return Buffer.from(bytes).toString("hex")
+}).pipe(
+  Effect.provide(BunCrypto.layer)
+)
+```
+
 #### BunTerminal
 
 Terminal/TTY operations:

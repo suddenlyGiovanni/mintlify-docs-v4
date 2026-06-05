@@ -133,7 +133,7 @@ it.effect.prop(
 Define test-specific implementations using test refs:
 
 ```typescript
-import { Array, Effect, Layer, Ref, ServiceMap } from "effect"
+import { Array, Effect, Layer, Ref, Context } from "effect"
 
 export interface Todo {
   readonly id: number
@@ -141,14 +141,14 @@ export interface Todo {
 }
 
 // Test ref service for storing test data
-export class TodoRepoTestRef extends ServiceMap.Service<
+export class TodoRepoTestRef extends Context.Service<
   TodoRepoTestRef,
   Ref.Ref<Array<Todo>>
 >()("app/TodoRepoTestRef") {
   static readonly layer = Layer.effect(TodoRepoTestRef, Ref.make(Array.empty()))
 }
 
-class TodoRepo extends ServiceMap.Service<TodoRepo, {
+class TodoRepo extends Context.Service<TodoRepo, {
   create(title: string): Effect.Effect<Todo>
   readonly list: Effect.Effect<ReadonlyArray<Todo>>
 }>()("app/TodoRepo") {
@@ -223,9 +223,9 @@ Test services that depend on other services:
 
 ```typescript
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 
-class TodoService extends ServiceMap.Service<TodoService, {
+class TodoService extends Context.Service<TodoService, {
   addAndCount(title: string): Effect.Effect<number>
   readonly titles: Effect.Effect<ReadonlyArray<string>>
 }>()("app/TodoService") {

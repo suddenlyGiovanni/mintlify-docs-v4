@@ -157,10 +157,10 @@ const recovered = loadPort("invalid").pipe(
 Services are the recommended way to structure Effect code. They provide dependency injection and make testing easier:
 
 ```typescript
-import { Effect, Layer, Schema, ServiceMap } from "effect"
+import { Effect, Layer, Schema, Context } from "effect"
 
 // Define a service
-export class Database extends ServiceMap.Service<Database, {
+export class Database extends Context.Service<Database, {
   query(sql: string): Effect.Effect<Array<unknown>, DatabaseError>
 }>()("myapp/db/Database") {
   // Provide implementation via Layer

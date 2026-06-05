@@ -288,9 +288,9 @@ const provider = ConfigProvider.fromUnknown({
 ## Integration with Layers
 
 ```ts
-import { Config, Effect, Layer, ServiceMap } from "effect"
+import { Config, Effect, Layer, Context } from "effect"
 
-class DatabaseConfig extends ServiceMap.Service<DatabaseConfig, {
+class DatabaseConfig extends Context.Service<DatabaseConfig, {
   url: string
   poolSize: number
 }>()("DatabaseConfig") {
