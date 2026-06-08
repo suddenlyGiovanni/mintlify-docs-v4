@@ -5,7 +5,8 @@ description: "Build schema-first, type-safe HTTP APIs with automatic validation 
 
 ## Overview
 
-`HttpApi` provides a schema-first approach to building HTTP APIs. Define your API once with Effect Schema, and get:
+`HttpApi` provides a schema-first approach to building HTTP APIs. Define your
+API once with `effect/Schema`, and get:
 
 - Type-safe handlers and clients
 - Automatic request/response validation
@@ -14,140 +15,189 @@ description: "Build schema-first, type-safe HTTP APIs with automatic validation 
 
 ## Defining an API
 
-Create an API definition with groups and endpoints:
+An API is built up by chaining `.add(...)` calls — endpoints onto groups, and
+groups onto the API. Endpoint constructors (`get`, `post`, …) take a name, a
+path, and an options object containing the schemas.
 
 ```typescript
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import {
+  HttpApi,
+  HttpApiEndpoint,
+  HttpApiGroup
+} from "effect/unstable/httpapi"
 import { Schema } from "effect"
 
-// Define response schemas
 class User extends Schema.Class<User>("User")({
   id: Schema.Number,
   name: Schema.String,
   email: Schema.String
 }) {}
 
-// Define endpoint groups
-class UsersApi extends HttpApiGroup.make("users")(
-  HttpApiEndpoint.get("list", "/users")(
-    Schema.Array(User)
-  ),
-  HttpApiEndpoint.get("getById", "/users/:id")(
-    User,
-    { path: Schema.Struct({ id: Schema.NumberFromString }) }
-  ),
-  HttpApiEndpoint.post("create", "/users")(
-    User,
-    { body: Schema.Struct({ name: Schema.String, email: Schema.String }) }
+class UsersApi extends HttpApiGroup.make("users")
+  .add(
+    HttpApiEndpoint.get("list", "/users", {
+      success: Schema.Array(User)
+    })
   )
-) {}
+  .add(
+    HttpApiEndpoint.get("getById", "/users/:id", {
+      success: User,
+      params: Schema.Struct({ id: Schema.NumberFromString })
+    })
+  )
+  .add(
+    HttpApiEndpoint.post("create", "/users", {
+      success: User,
+      payload: Schema.Struct({
+        name: Schema.String,
+        email: Schema.String
+      })
+    })
+  ) {}
 
-class SystemApi extends HttpApiGroup.make("system")(
-  HttpApiEndpoint.get("health", "/health")(Schema.Void)
-) {}
+class SystemApi extends HttpApiGroup.make("system")
+  .add(HttpApiEndpoint.get("health", "/health")) {}
 
-// Combine groups into a full API
-class Api extends HttpApi.make("api")(
-  UsersApi,
-  SystemApi
-) {}
+class Api extends HttpApi.make("api")
+  .add(UsersApi)
+  .add(SystemApi) {}
 ```
+
+Endpoint options:
+
+- `params` — schema for path parameters captured by `:name` segments
+- `query` — schema for the URL query string
+- `headers` — schema for required headers
+- `payload` — schema for the request body (only on methods that have one)
+- `success` — schema for the response body (defaults to no content)
+- `error` — schema (or array of schemas) for typed errors
 
 ## Implementing handlers
 
-Create handlers that match your API definition:
+`HttpApiBuilder.group(api, name, build)` registers handlers for one group. The
+`build` callback receives a `handlers` value and returns it (or an effect that
+returns it) after `.handle("endpointName", impl)` calls.
 
 ```typescript
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 
 const UsersApiHandlers = HttpApiBuilder.group(
   Api,
   "users",
-  Effect.fn(function*(handlers) {
-    const userService = yield* UserService
-
-    return handlers
-      .handle("list", () => userService.listUsers())
-      .handle("getById", ({ path }) => userService.getUserById(path.id))
-      .handle("create", ({ body }) => userService.createUser(body))
-  })
+  (handlers) =>
+    handlers
+      .handle("list", () =>
+        Effect.succeed([{ id: 1, name: "Alice", email: "alice@example.com" }])
+      )
+      .handle("getById", ({ path }) =>
+        Effect.succeed({
+          id: path.id,
+          name: "Alice",
+          email: "alice@example.com"
+        })
+      )
+      .handle("create", ({ payload }) =>
+        Effect.succeed({ id: 1, name: payload.name, email: payload.email })
+      )
 )
 
 const SystemApiHandlers = HttpApiBuilder.group(
   Api,
   "system",
-  Effect.fn(function*(handlers) {
-    return handlers.handle("health", () => Effect.void)
-  })
+  (handlers) => handlers.handle("health", () => Effect.void)
+)
+```
+
+Each handler receives a single context object exposing the decoded
+`payload`, `path`, `urlParams`, `headers`, and the underlying `request`.
+
+If you need to set up services before defining handlers, return an effect:
+
+```typescript
+const UsersApiHandlers = HttpApiBuilder.group(
+  Api,
+  "users",
+  (handlers) =>
+    Effect.gen(function*() {
+      const users = yield* UserService
+      return handlers
+        .handle("list", () => users.list())
+        .handle("getById", ({ path }) => users.getById(path.id))
+        .handle("create", ({ payload }) => users.create(payload))
+    })
 )
 ```
 
 ## Serving the API
 
-Build the API routes and serve them:
+`HttpApiBuilder.layer(api)` builds the routes; provide the group handler layers
+and pass the result to `HttpRouter.serve`.
 
 ```typescript
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+import { Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { createServer } from "node:http"
 
-const ApiRoutes = HttpApiBuilder.layer(Api, {
+const ApiLive = HttpApiBuilder.layer(Api, {
   openapiPath: "/openapi.json"
 }).pipe(
   Layer.provide([UsersApiHandlers, SystemApiHandlers])
 )
 
-const server = HttpRouter.serve(ApiRoutes).pipe(
+const ServerLive = HttpRouter.serve(ApiLive).pipe(
   Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
 )
 
-Layer.launch(server).pipe(NodeRuntime.runMain)
+Layer.launch(ServerLive).pipe(NodeRuntime.runMain)
 ```
+
+`HttpApiBuilder.layer` only accepts `{ openapiPath }`. Metadata like the API
+title and version is attached as annotations — see
+[OpenAPI documentation](#openapi-documentation) below.
 
 ## Using the typed client
 
-Generate a typed client from your API definition:
+`HttpApiClient.make(Api)` produces a client shaped like the API:
+`client.<group>.<endpoint>(args)`. It requires an `HttpClient` in the
+environment.
 
 ```typescript
+import { Effect, Layer } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
 import { HttpApiClient } from "effect/unstable/httpapi"
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
-import { Effect, Layer, Schedule, Context } from "effect"
 
-class ApiClient extends Context.Service<
-  ApiClient,
-  HttpApiClient.ForApi<typeof Api>
->()("app/ApiClient") {
-  static readonly layer = Layer.effect(
-    ApiClient,
-    HttpApiClient.make(Api, {
-      transformClient: (client) =>
-        client.pipe(
-          HttpClient.mapRequest(
-            HttpClientRequest.prependUrl("http://localhost:3000")
-          ),
-          HttpClient.retryTransient({
-            schedule: Schedule.exponential(100),
-            times: 3
-          })
-        )
-    })
-  ).pipe(
-    Layer.provide(FetchHttpClient.layer)
-  )
-}
-
-// Use the client
 const program = Effect.gen(function*() {
-  const client = yield* ApiClient
-
-  // Fully typed calls
-  const users = yield* client.list()
-  const user = yield* client.getById({ path: { id: 123 } })
-  const newUser = yield* client.create({
-    body: { name: "Alice", email: "alice@example.com" }
+  const client = yield* HttpApiClient.make(Api, {
+    baseUrl: "http://localhost:3000"
   })
+
+  const users = yield* client.users.list()
+  const user = yield* client.users.getById({ path: { id: 123 } })
+  const newUser = yield* client.users.create({
+    payload: { name: "Alice", email: "alice@example.com" }
+  })
+
+  return { users, user, newUser }
+}).pipe(Effect.provide(FetchHttpClient.layer))
+```
+
+`transformClient` lets you mutate the underlying `HttpClient` — for example, to
+add retries:
+
+```typescript
+import { Schedule } from "effect"
+import { HttpClient } from "effect/unstable/http"
+
+const program = HttpApiClient.make(Api, {
+  baseUrl: "http://localhost:3000",
+  transformClient: (client) =>
+    HttpClient.retryTransient(client, {
+      schedule: Schedule.exponential("100 millis"),
+      times: 3
+    })
 })
 ```
 
@@ -155,77 +205,134 @@ const program = Effect.gen(function*() {
 
 ### Serving docs with Scalar
 
+`HttpApiScalar.layer` mounts a Scalar reference page. The OpenAPI spec is
+generated from the API and served at `openapiPath` (set on
+`HttpApiBuilder.layer`).
+
 ```typescript
+import { Layer } from "effect"
 import { HttpApiScalar } from "effect/unstable/httpapi"
 
-const DocsRoute = HttpApiScalar.layer(Api, {
-  path: "/docs"
-})
+const DocsLive = HttpApiScalar.layer(Api, { path: "/docs" })
 
-const AllRoutes = Layer.mergeAll(ApiRoutes, DocsRoute)
+const AppLive = Layer.mergeAll(ApiLive, DocsLive)
 ```
 
 Visit `/docs` to see interactive API documentation.
 
 ### Customizing OpenAPI output
 
+Attach metadata to the API via `OpenApi.annotations` and `.annotateMerge`:
+
 ```typescript
-const ApiRoutes = HttpApiBuilder.layer(Api, {
-  openapiPath: "/openapi.json",
-  info: {
+import { OpenApi } from "effect/unstable/httpapi"
+
+class Api extends HttpApi.make("api")
+  .add(UsersApi)
+  .add(SystemApi)
+  .annotateMerge(OpenApi.annotations({
     title: "My API",
     version: "1.0.0",
     description: "A type-safe API built with Effect"
-  }
-})
+  })) {}
 ```
+
+The same pattern works on `HttpApiGroup` and individual endpoints to set
+descriptions, summaries, tags, or servers per group/endpoint.
 
 ## Middleware
 
 ### Defining middleware
 
+Middleware is a `Context.Service` declared via `HttpApiMiddleware.Service`. The
+type parameters declare what the middleware requires and provides; the options
+object declares its error and (optionally) security schemes.
+
 ```typescript
+import { Context, Schema } from "effect"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 
-class Authorization extends HttpApiMiddleware.Tag<Authorization>()("Authorization", {
-  failure: Schema.Struct({ _tag: Schema.tag("Unauthorized") }),
-  provides: Schema.Struct({ userId: Schema.String })
+class CurrentUser extends Context.Service<CurrentUser, { id: string }>()(
+  "app/CurrentUser"
+) {}
+
+class Unauthorized extends Schema.TaggedErrorClass<Unauthorized>()(
+  "Unauthorized",
+  {}
+) {}
+
+class Authorization extends HttpApiMiddleware.Service<Authorization, {
+  provides: CurrentUser
+}>()("app/Authorization", {
+  error: Unauthorized
 }) {}
 ```
 
-### Applying to endpoints
+### Applying to groups or endpoints
+
+Both `HttpApiGroup` and `HttpApiEndpoint` expose a `.middleware(M)` method:
 
 ```typescript
-class UsersApi extends HttpApiGroup.make("users")(
-  HttpApiEndpoint.get("profile", "/profile")(
-    User,
-    { middleware: Authorization }
+class UsersApi extends HttpApiGroup.make("users")
+  .add(
+    HttpApiEndpoint.get("profile", "/profile", { success: User })
   )
-) {}
+  .middleware(Authorization) {}
 ```
 
 ### Implementing middleware
 
-```typescript
-// Server-side
-const AuthorizationServer = HttpApiMiddleware.layerServer(
-  Authorization,
-  Effect.fn(function*({ next, request }) {
-    const token = request.headers.get("authorization")
-    if (!token) {
-      return yield* Effect.fail({ _tag: "Unauthorized" as const })
-    }
-    return yield* next({ userId: "user-123" })
-  })
-)
+Provide a `Layer.succeed(M, impl)` where `impl` matches the middleware's call
+signature. For a plain middleware, that's a function from the handler effect to
+a new handler effect.
 
-// Client-side
+```typescript
+import { Effect, Layer } from "effect"
+
+const AuthorizationLive = Layer.succeed(
+  Authorization,
+  (effect) =>
+    Effect.provideService(effect, CurrentUser, { id: "user-123" })
+)
+```
+
+For security-scheme middleware, declare `security` on the service and provide
+an implementation per scheme. The implementation receives the decoded
+credential.
+
+```typescript
+import { Redacted } from "effect"
+import { HttpApiSecurity } from "effect/unstable/httpapi"
+
+class ApiKeyAuth extends HttpApiMiddleware.Service<ApiKeyAuth, {
+  provides: CurrentUser
+}>()("app/ApiKeyAuth", {
+  security: {
+    apiKey: HttpApiSecurity.apiKey({ in: "header", key: "x-api-key" })
+  }
+}) {}
+
+const ApiKeyAuthLive = Layer.succeed(ApiKeyAuth)({
+  apiKey: (effect, { credential }) =>
+    Effect.provideService(effect, CurrentUser, {
+      id: Redacted.value(credential)
+    })
+})
+```
+
+### Client-side middleware
+
+`HttpApiMiddleware.layerClient` wires middleware logic into the generated
+client — for example, to inject an auth header:
+
+```typescript
+import { HttpClientRequest } from "effect/unstable/http"
+import { HttpApiMiddleware } from "effect/unstable/httpapi"
+
 const AuthorizationClient = HttpApiMiddleware.layerClient(
   Authorization,
-  Effect.fn(function*({ next, request }) {
-    const modifiedRequest = HttpClientRequest.bearerToken(request, "my-token")
-    return yield* next(modifiedRequest)
-  })
+  ({ next, request }) =>
+    next(HttpClientRequest.bearerToken(request, "my-token"))
 )
 ```
 
@@ -251,17 +358,25 @@ const ApiKey = HttpApiSecurity.apiKey({
 })
 ```
 
-Use `HttpApiBuilder.middlewareSecurity` to implement the middleware that
-validates credentials for each scheme. Custom HTTP schemes defined with
-`HttpApiSecurity.http` are also rendered into the generated OpenAPI document.
+Attach a security scheme to a middleware (as shown above) and the credential
+will be decoded automatically before the handler runs. Custom HTTP schemes
+defined with `HttpApiSecurity.http` are also rendered into the generated
+OpenAPI document.
 
 ## Complete example
 
 ```typescript
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
-import { Effect, Layer, Schema, Context } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { HttpRouter } from "effect/unstable/http"
-import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApi } from "effect/unstable/httpapi"
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiScalar,
+  OpenApi
+} from "effect/unstable/httpapi"
 import { createServer } from "node:http"
 
 class User extends Schema.Class<User>("User")({
@@ -269,45 +384,56 @@ class User extends Schema.Class<User>("User")({
   name: Schema.String
 }) {}
 
-class UsersApi extends HttpApiGroup.make("users")(
-  HttpApiEndpoint.get("list", "/users")(Schema.Array(User)),
-  HttpApiEndpoint.get("getById", "/users/:id")(
-    User,
-    { path: Schema.Struct({ id: Schema.NumberFromString }) }
+class UsersApi extends HttpApiGroup.make("users")
+  .add(
+    HttpApiEndpoint.get("list", "/users", {
+      success: Schema.Array(User)
+    })
   )
-) {}
+  .add(
+    HttpApiEndpoint.get("getById", "/users/:id", {
+      success: User,
+      params: Schema.Struct({ id: Schema.NumberFromString })
+    })
+  ) {}
 
-class Api extends HttpApi.make("api")(UsersApi) {}
+class Api extends HttpApi.make("api")
+  .add(UsersApi)
+  .annotateMerge(OpenApi.annotations({
+    title: "Users API",
+    version: "1.0.0"
+  })) {}
 
 const UsersApiHandlers = HttpApiBuilder.group(
   Api,
   "users",
-  Effect.fn(function*(handlers) {
-    return handlers
-      .handle("list", () => Effect.succeed([
-        { id: 1, name: "Alice" },
-        { id: 2, name: "Bob" }
-      ]))
+  (handlers) =>
+    handlers
+      .handle("list", () =>
+        Effect.succeed([{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }])
+      )
       .handle("getById", ({ path }) =>
         Effect.succeed({ id: path.id, name: "Alice" })
       )
-  })
 )
 
-const ApiRoutes = HttpApiBuilder.layer(Api, {
+const ApiLive = HttpApiBuilder.layer(Api, {
   openapiPath: "/openapi.json"
-}).pipe(
-  Layer.provide([UsersApiHandlers])
-)
+}).pipe(Layer.provide(UsersApiHandlers))
 
-const server = HttpRouter.serve(ApiRoutes).pipe(
+const DocsLive = HttpApiScalar.layer(Api, { path: "/docs" })
+
+const ServerLive = HttpRouter.serve(
+  Layer.mergeAll(ApiLive, DocsLive)
+).pipe(
   Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
 )
 
-Layer.launch(server).pipe(NodeRuntime.runMain)
+Layer.launch(ServerLive).pipe(NodeRuntime.runMain)
 ```
 
 ## See also
 
-- [HTTP Client](/unstable/http-client) - Make typed API calls
-- [HTTP Server](/unstable/http-server) - Build servers
+- [HTTP Client](/unstable/http-client) — make typed API calls
+- [HTTP Server](/unstable/http-server) — build servers
+
